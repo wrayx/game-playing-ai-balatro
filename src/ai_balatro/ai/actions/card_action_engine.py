@@ -630,42 +630,60 @@ class CardActionEngine:
     #: How long to wait for the board to stop changing after an action.
     SETTLE_TIMEOUT = 8.0
 
+    def _board_signature(self, frame: np.ndarray) -> tuple:
+        """What the board looks like right now, for comparing two captures.
+
+        Both halves matter. The hand count catches cards being dealt back after
+        a play or discard; the button set catches a screen change, such as the
+        Cash Out panel appearing once a blind is won -- which the hand count
+        alone cannot see, because winning empties the hand.
+        """
+        hand_count = len(self._detect_hand(frame))
+        buttons = frozenset()
+        if self.multi_detector is not None:
+            buttons = frozenset(
+                d.class_name.lower()
+                for d in self.multi_detector.detect_ui(frame)
+                if d.class_name.lower().startswith('button_')
+            )
+        return hand_count, buttons
+
     def _wait_until_settled(
         self, timeout: Optional[float] = None, interval: float = 0.25
     ) -> bool:
-        """Block until the hand stops changing after an action.
+        """Block until the board stops changing after an action.
 
         The click on Play or Discard returns before the game has finished
-        dealing: measured right after a discard, the hand read 7 cards for about
-        half a second before the replacements landed. Anything that captures
-        state in that window sees a partial hand, and a tooltip sweep over it
-        finds nothing -- which is how a caller ends up reasoning about cards it
-        could not read.
+        animating: measured right after a discard, the hand read 7 cards for
+        about half a second before the replacements landed, and after a
+        blind-winning play the Cash Out button took longer still to appear.
+        Anything that captures state in that window sees a board that is not
+        there -- a partial hand whose tooltips read blank, or a screen with no
+        actionable buttons at all.
 
-        Note this tracks the hand only. The score counter animates for longer,
-        so a score read immediately afterwards can still be mid-count.
+        Note this tracks the hand and the buttons. The score counter animates
+        for longer, so a score read immediately afterwards can still be
+        mid-count.
         """
         deadline = time.time() + (timeout or self.SETTLE_TIMEOUT)
-        previous: Optional[int] = None
-        stable = 0
+        previous: Optional[tuple] = None
 
         while time.time() < deadline:
             frame = self.screen_capture.capture_once()
             if frame is not None:
-                count = len(self._detect_hand(frame))
-                if count > 0 and count == previous:
-                    stable += 1
-                    if stable >= 2:
-                        logger.info(f'Board settled with {count} cards in hand')
-                        return True
-                else:
-                    stable = 0
-                previous = count
+                signature = self._board_signature(frame)
+                if signature == previous:
+                    logger.info(
+                        f'Board settled: {signature[0]} cards in hand, '
+                        f'{len(signature[1])} buttons'
+                    )
+                    return True
+                previous = signature
             time.sleep(interval)
 
         logger.warning(
-            f'Hand did not settle within {timeout or self.SETTLE_TIMEOUT:.1f}s; '
-            f'the next capture may see a partial board'
+            f'Board did not settle within {timeout or self.SETTLE_TIMEOUT:.1f}s; '
+            f'the next capture may see a board mid-animation'
         )
         return False
 
