@@ -93,6 +93,11 @@ class GameStateExtractionService:
                 frame, entities, ui_elements, hand_cards, game_state
             )
 
+        if capture_card_descriptions:
+            self._enrich_owned_jokers(frame, game_state)
+            if game_state['game_phase'] == 'shop':
+                self._enrich_shop(frame, ui_elements, game_state)
+
         return game_state
 
     # ---------------------------------------------------------------------
@@ -130,6 +135,18 @@ class GameStateExtractionService:
             for idx, detection in enumerate(hand_cards)
         ]
 
+        # A price tag above an item is what marks it as for sale. Owned jokers
+        # and shop jokers share a class, and both are on screen at once in the
+        # shop, so position alone cannot separate them.
+        priced = entities.pair_with_prices(
+            entities.shop_item_candidates(entities_detection),
+            entities.price_tags(ui_detection),
+        )
+        shop_stock = [(item, tag) for item, tag in priced if tag is not None]
+        owned_jokers = [
+            item for item, tag in priced if tag is None and entities.is_joker(item)
+        ]
+
         jokers = [
             {
                 'index': idx,
@@ -139,8 +156,10 @@ class GameStateExtractionService:
                 'center': detection.center,
                 'width': detection.width,
                 'height': detection.height,
+                'description_text': '',
+                'description_detected': False,
             }
-            for idx, detection in enumerate(entities.jokers(entities_detection))
+            for idx, detection in enumerate(owned_jokers)
         ]
 
         for detection in ui_detection:
@@ -170,6 +189,9 @@ class GameStateExtractionService:
             'card_descriptions': [],
             'ui_text_elements': [],
             'ui_text_values': {},
+            'shop_items': [],
+            '_owned_joker_detections': owned_jokers,
+            '_shop_stock_detections': shop_stock,
         }
 
         return game_state, hand_cards
@@ -259,6 +281,145 @@ class GameStateExtractionService:
         game_state['ui_text_elements'] = text_entries
         game_state['ui_text_values'] = value_map
 
+    def _enrich_owned_jokers(
+        self, base_frame: np.ndarray, game_state: Dict[str, Any]
+    ) -> None:
+        """Read the name and effect of each joker the player owns.
+
+        Without this a joker reaches the model as 'joker_card (confidence
+        0.95)', which says nothing about what it does, so the model cannot
+        reason about synergy with cards it cannot identify.
+        """
+        owned = game_state.get('_owned_joker_detections') or []
+        if not owned:
+            return
+
+        descriptions = self.sweep_descriptions(base_frame, owned)
+        for idx, desc in enumerate(descriptions):
+            if idx >= len(game_state['jokers']):
+                continue
+            entry = game_state['jokers'][idx]
+            entry['description_text'] = desc.get('description_text', '')
+            entry['description_detected'] = desc.get('description_detected', False)
+
+    def _enrich_shop(
+        self,
+        base_frame: np.ndarray,
+        ui_detection: Sequence[Detection],
+        game_state: Dict[str, Any],
+    ) -> None:
+        """Read what the shop is selling, for how much, and what each one does.
+
+        The tooltip is the only place the game states a joker's name, effect,
+        rarity and stickers, and stickers are run-specific: an external table
+        cannot know this copy is Perishable with five rounds left or Rental at
+        $3 a round, which on higher stakes decides whether it is worth buying.
+        """
+        stock = game_state.get('_shop_stock_detections') or []
+        if not stock:
+            return
+
+        prices: Dict[tuple, str] = {}
+        tags = [tag for _, tag in stock]
+        if tags and self.ui_text_service is not None:
+            try:
+                for extraction in self.ui_text_service.extract(base_frame, tags):
+                    prices[tuple(extraction.bbox)] = extraction.text
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f'Shop price OCR failed: {exc}')
+
+        items = [item for item, _ in stock]
+        descriptions = self.sweep_descriptions(base_frame, items)
+
+        entries: List[Dict[str, Any]] = []
+        for idx, (item, tag) in enumerate(stock):
+            desc = descriptions[idx] if idx < len(descriptions) else {}
+            entries.append(
+                {
+                    'index': idx,
+                    'class_name': item.class_name,
+                    'confidence': item.confidence,
+                    'position': list(item.bbox),
+                    'center': item.center,
+                    'price': prices.get(tuple(tag.bbox), ''),
+                    'description_text': desc.get('description_text', ''),
+                    'description_detected': desc.get('description_detected', False),
+                }
+            )
+
+        game_state['shop_items'] = entries
+
+    def sweep_descriptions(
+        self,
+        base_frame: np.ndarray,
+        targets: Sequence[Detection],
+    ) -> List[Dict[str, Any]]:
+        """Hover each target in turn and OCR the tooltip it raises.
+
+        Works for anything the game describes on hover -- hand cards, the
+        jokers you own, shop stock -- because the tooltip is the only place the
+        game states a joker's name, effect and stickers. Reading it beats any
+        external table, which cannot know that this particular copy is
+        Perishable with five rounds left or Rental at $3 a round.
+
+        Args:
+            base_frame: A settled frame used to plan hover positions
+            targets: Detections to hover, in the order results are wanted
+
+        Returns:
+            One description dict per target, in the same order, where entries
+            for targets that raised no readable tooltip are present but empty.
+            An empty list means the sweep could not run at all, which is a
+            different thing from running and reading nothing.
+        """
+        empty = {
+            'description_text': '',
+            'description_detected': False,
+            'ocr_confidence': 0.0,
+            'parsed_description': None,
+        }
+
+        ordered = list(targets)
+        if not ordered:
+            return []
+        if not self.card_tooltip_service or not self.mouse_controller:
+            logger.debug('Tooltip service or mouse controller missing; skipping sweep')
+            return []
+
+        sweep_plan = self._plan_card_sweep(base_frame, ordered)
+        if not sweep_plan:
+            logger.debug('Unable to plan sweep; skipping hover')
+            return []
+
+        hover_frames: Dict[int, np.ndarray] = {}
+        index_lookup = [index for index, _ in sweep_plan]
+        positions = [coords for _, coords in sweep_plan]
+
+        def capture_callback(step_index: int, _x: int, _y: int) -> None:
+            index = index_lookup[min(step_index, len(index_lookup) - 1)]
+            frame = self.screen_capture.capture_once()
+            if frame is not None:
+                hover_frames[index] = frame
+
+        swept = self.mouse_controller.sweep_path(
+            positions,
+            dwell_time=self.hover_dwell_time,
+            move_duration=self.sweep_move_duration,
+            capture_callback=capture_callback,
+        )
+
+        if not swept or not hover_frames:
+            logger.debug('Hover sweep produced no frames; skipping description OCR')
+            return []
+
+        descriptions = [dict(empty) for _ in ordered]
+        for index, frame in hover_frames.items():
+            if index < len(ordered):
+                descriptions[index] = self._process_hover_frame(
+                    ordered[index], frame, index
+                )
+        return descriptions
+
     def _enrich_card_descriptions(
         self,
         base_frame: np.ndarray,
@@ -267,63 +428,13 @@ class GameStateExtractionService:
         hand_cards: Sequence[Detection],
         game_state: Dict[str, Any],
     ) -> None:
-        if not self.card_tooltip_service or not self.mouse_controller:
-            logger.debug(
-                'Card tooltip service or mouse controller missing; skipping fast hover'
-            )
+        descriptions = self.sweep_descriptions(base_frame, hand_cards)
+        if not descriptions:
             return
 
-        ordered = list(hand_cards)
-        if not ordered:
-            return
+        game_state['card_descriptions'] = descriptions
 
-        sweep_plan = self._plan_card_sweep(base_frame, ordered)
-        if not sweep_plan:
-            logger.debug('Unable to plan card sweep; skipping fast hover')
-            return
-
-        hover_frames: Dict[int, np.ndarray] = {}
-        index_lookup = [card_index for card_index, _ in sweep_plan]
-        positions = [coords for _, coords in sweep_plan]
-
-        def capture_callback(step_index: int, _x: int, _y: int) -> None:
-            card_index = index_lookup[min(step_index, len(index_lookup) - 1)]
-            frame = self.screen_capture.capture_once()
-            if frame is not None:
-                hover_frames[card_index] = frame
-
-        sweep_success = self.mouse_controller.sweep_path(
-            positions,
-            dwell_time=self.hover_dwell_time,
-            move_duration=self.sweep_move_duration,
-            capture_callback=capture_callback,
-        )
-
-        if not sweep_success or not hover_frames:
-            logger.debug('Hover sweep produced no frames; skipping description OCR')
-            return
-
-        card_descriptions: List[Dict[str, Any]] = [
-            {
-                'description_text': '',
-                'description_detected': False,
-                'ocr_confidence': 0.0,
-                'parsed_description': None,
-            }
-            for _ in ordered
-        ]
-
-        for card_index, frame in hover_frames.items():
-            if card_index >= len(ordered):
-                continue
-
-            card = ordered[card_index]
-            description_info = self._process_hover_frame(card, frame, card_index)
-            card_descriptions[card_index] = description_info
-
-        game_state['card_descriptions'] = card_descriptions
-
-        for idx, desc in enumerate(card_descriptions):
+        for idx, desc in enumerate(descriptions):
             if idx >= len(game_state['cards']):
                 continue
 

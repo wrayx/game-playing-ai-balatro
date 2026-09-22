@@ -132,3 +132,69 @@ def _warn_unknown(detections: Sequence[Detection]) -> None:
             f'Unrecognised entity class {class_name!r}; it will be excluded from '
             f'the hand. Add it to ai_balatro.core.entities if the model changed.'
         )
+
+
+#: Anything the shop can sell. Owned jokers share the joker class, so position
+#: alone cannot separate them -- a price tag above the item is what marks it as
+#: for sale (see pair_with_prices).
+SHOP_ITEM_CLASSES = JOKER_CLASSES | CONSUMABLE_CLASSES | PACK_CLASSES
+
+#: The UI model's class for a shop price tag.
+PRICE_CLASS = 'ui_card_value'
+
+
+def shop_item_candidates(detections: Iterable[Detection]) -> List[Detection]:
+    """Entities the shop could be selling, ordered left to right."""
+    return sort_left_to_right(d for d in detections if _name(d) in SHOP_ITEM_CLASSES)
+
+
+def price_tags(detections: Iterable[Detection]) -> List[Detection]:
+    """Price tag detections from the UI model, ordered left to right."""
+    return sort_left_to_right(d for d in detections if _name(d) == PRICE_CLASS)
+
+
+def pair_with_prices(
+    items: Sequence[Detection],
+    prices: Sequence[Detection],
+    max_gap: int = 120,
+    max_overlap: int = 30,
+) -> List[tuple]:
+    """Pair each item with the price tag sitting above it.
+
+    The tag is drawn above its item and horizontally centred on it, so a tag
+    belongs to the item whose horizontal span contains the tag's centre and
+    whose top edge is nearest below the tag.
+
+    Args:
+        items: Candidate shop items, any order
+        prices: Price tag detections
+        max_gap: Largest vertical distance to accept, so a tag is not matched
+            to an item on a different row
+        max_overlap: How far the tag may hang over the item's top edge. The
+            game draws them touching -- measured at one pixel of overlap on a
+            shop joker and its tag -- so requiring a non-negative gap silently
+            dropped most of the stock
+
+    Returns:
+        (item, price_detection_or_None) for every item, ordered left to right
+    """
+    paired: List[tuple] = []
+
+    for item in sort_left_to_right(items):
+        item_left, item_top, item_right, _ = item.bbox
+        best = None
+        best_gap = None
+
+        for price in prices:
+            price_centre_x = (price.bbox[0] + price.bbox[2]) // 2
+            if not item_left <= price_centre_x <= item_right:
+                continue
+            gap = item_top - price.bbox[3]
+            if gap < -max_overlap or gap > max_gap:
+                continue
+            if best_gap is None or abs(gap) < abs(best_gap):
+                best, best_gap = price, gap
+
+        paired.append((item, best))
+
+    return paired
