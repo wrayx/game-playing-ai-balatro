@@ -391,7 +391,8 @@ HOW TO DECIDE:
   around ante 2, because blind targets roughly triple while an unimproved
   deck does not. Buying a decent joker early usually beats saving.
 - Money earns interest between rounds: $1 for every $5 you hold, capped at
-  $5 per round. Spending down to nothing costs future income, so leaving a
+  $5 per round, so $25 is the point beyond which holding more earns
+  nothing extra. Spending down to nothing costs future income, so leaving a
   few dollars is worth something, but not at the cost of an empty joker
   slot in the early antes.
 - Read the sticker lines in each description. 'Perishable' means it stops
@@ -441,8 +442,19 @@ Choose one action now and explain your reasoning."""
 
         jokers_info = []
         for joker in game_state.get('jokers', []):
+            # The effect text, not the class name. A joker's rules are read
+            # off its tooltip every turn, so the model does not have to
+            # remember them -- but only if they are actually shown here. Sent
+            # as a bare class name, 'Ride the Bus' says nothing about avoiding
+            # face cards, which is the whole reason to own it.
+            text = ' '.join(str(joker.get('description_text', '')).split())
+            if len(text) > 160:
+                text = text[:160] + '...'
             jokers_info.append(
-                f'Joker: {joker["class_name"]} (confidence: {joker["confidence"]:.2f})'
+                f'Joker: {text}'
+                if text
+                else f'Joker: {joker["class_name"]} '
+                f'(effect unreadable, confidence: {joker["confidence"]:.2f})'
             )
 
         buttons_info = []

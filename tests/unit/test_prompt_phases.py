@@ -154,3 +154,41 @@ def test_pack_opening_tells_it_to_skip_not_play():
     assert "button_type='skip'" in prompt
     assert 'not your hand' in prompt
     assert 'POKER OBJECTIVES' not in prompt
+
+
+def test_playing_prompt_shows_what_each_joker_does():
+    """A joker's rules are re-read from its tooltip every turn, so the model
+    need not remember them -- but only if the prompt actually carries them.
+    'Ride the Bus' as a bare class name says nothing about avoiding face cards.
+    """
+    st = state('playing', cards=3)
+    st['jokers'] = [
+        {
+            'index': 0,
+            'class_name': 'joker_card',
+            'confidence': 0.95,
+            'description_text': 'Ride the Bus gains +1 Mult per consecutive '
+            'hand played without a scoring face card',
+        }
+    ]
+    prompt = agent()._create_analysis_prompt(st)
+    assert 'without a scoring face card' in prompt
+
+
+def test_unreadable_joker_says_so_rather_than_looking_informative():
+    st = state('playing', cards=3)
+    st['jokers'] = [
+        {
+            'index': 0,
+            'class_name': 'joker_card',
+            'confidence': 0.9,
+            'description_text': '',
+        }
+    ]
+    prompt = agent()._create_analysis_prompt(st)
+    assert 'effect unreadable' in prompt
+
+
+def test_shop_prompt_names_the_interest_threshold():
+    prompt = agent()._create_analysis_prompt(shop_state())
+    assert '$25' in prompt
