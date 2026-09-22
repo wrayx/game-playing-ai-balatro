@@ -557,8 +557,13 @@ class CardActionEngine:
             logger.error(f'Error occurred while executing click operations: {e}')
             return False
 
-    #: A selected card lifts clear of the few pixels a hover adds.
-    SELECTION_LIFT_PX = 10
+    #: A selected card lifts by roughly a fifth of its own height. Measured on
+    #: a 932x602 window with ~120px cards: real selections lifted 21-33px, the
+    #: arc of the fan raised an unselected middle card up to 14px, and a hover
+    #: adds about 5px. Expressed as a fraction so it holds at other window
+    #: sizes, with a floor for very small captures.
+    SELECTION_LIFT_FRACTION = 0.15
+    MIN_SELECTION_LIFT_PX = 8
 
     #: Balatro never lets more than five cards be selected at once. The hand is
     #: fanned in an arc, so a central card can sit above the cards at the low
@@ -593,6 +598,12 @@ class CardActionEngine:
             return []
 
         floor = max(card.bbox[1] for card in current)
+        heights = sorted(card.bbox[3] - card.bbox[1] for card in current)
+        median_height = heights[len(heights) // 2]
+        threshold = max(
+            self.MIN_SELECTION_LIFT_PX,
+            int(median_height * self.SELECTION_LIFT_FRACTION),
+        )
         lifted: List[tuple] = []
 
         for index, card in enumerate(baseline):
@@ -601,7 +612,7 @@ class CardActionEngine:
                 continue
             match = min(matches, key=lambda c: abs(c.bbox[0] - card.bbox[0]))
             lift = floor - match.bbox[1]
-            if lift >= self.SELECTION_LIFT_PX:
+            if lift >= threshold:
                 lifted.append((lift, index))
 
         if len(lifted) > self.MAX_SELECTED_CARDS:

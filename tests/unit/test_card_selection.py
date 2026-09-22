@@ -15,7 +15,7 @@ from ai_balatro.core.detection import Detection
 
 FRAME = np.zeros((10, 10, 3), dtype=np.uint8)
 RESTING_Y = 400
-LIFT = 25
+LIFT = 25  # comfortably above 15% of a 120px card
 
 
 class StubDetector:
@@ -57,7 +57,7 @@ def test_reports_the_lifted_cards():
 def test_hover_lift_is_not_mistaken_for_selection():
     """Hovering raises a card a few pixels; only selection clears the threshold."""
     baseline = hand(0, 0, 0, 0)
-    current = hand(0, 5, 0, 0)
+    current = hand(0, 5, 0, 0)  # hover only
     assert engine_for(current)._selected_indices(baseline, FRAME) == []
 
 
