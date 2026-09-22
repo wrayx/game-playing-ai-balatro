@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Iterable, List, Optional, Sequence, Tuple
 
@@ -32,6 +33,19 @@ DYNAMIC_UI_CLASSES = (
 )
 
 
+_DIGITS = re.compile(r'\d+')
+
+
+def _digits_only(text: str) -> str:
+    """Keep just the digits from an OCR read of a numeric readout.
+
+    Every class in DYNAMIC_UI_CLASSES is a number, and the recogniser tends to
+    decorate an isolated digit with stray marks ('-0', '-*0-', '$ 300'). The raw
+    string stays available on the returned OcrResult for debugging.
+    """
+    return ''.join(_DIGITS.findall(text))
+
+
 @dataclass
 class UITextExtraction:
     """Represents OCR results for a UI detection."""
@@ -52,7 +66,7 @@ class UITextExtractionService:
         self,
         target_classes: Optional[Sequence[str]] = None,
         ocr_engine: Optional[RapidOCREngine] = None,
-        scale_factor: float = 2.0,
+        scale_factor: float = 4.0,
     ) -> None:
         self.target_classes = (
             tuple(target_classes) if target_classes else DYNAMIC_UI_CLASSES
@@ -64,7 +78,9 @@ class UITextExtractionService:
             self.ocr_engine = ocr_engine
             self._owns_engine = False
         else:
-            engine = RapidOCREngine()
+            # Measured on a live frame: the English recogniser reads Balatro's
+            # pixel digits better than the default (8/10 vs 7/10 fields).
+            engine = RapidOCREngine(rec_lang='en')
             engine.init()
             self.ocr_engine = engine
             self._owns_engine = True
@@ -104,7 +120,9 @@ class UITextExtractionService:
             processed = self._preprocess_crop(crop)
 
             try:
-                ocr_result = self.ocr_engine.run(processed)
+                # These crops are already localised by the UI detector, so the
+                # DB text detector only hurts -- see run_text_line.
+                ocr_result = self.ocr_engine.run_text_line(processed)
             except Exception as exc:  # noqa: BLE001
                 logger.error(
                     'RapidOCR failed on %s bbox=%s: %s',
@@ -114,8 +132,16 @@ class UITextExtractionService:
                 )
                 continue
 
-            text = ocr_result.text.strip() if ocr_result.text else ''
+            raw_text = ocr_result.text.strip() if ocr_result.text else ''
+            text = _digits_only(raw_text)
             confidence = self._infer_confidence(ocr_result)
+
+            if raw_text and not text:
+                logger.debug(
+                    'Discarding non-numeric OCR read for %s: %r',
+                    detection.class_name,
+                    raw_text,
+                )
 
             results.append(
                 UITextExtraction(
@@ -123,7 +149,7 @@ class UITextExtractionService:
                     bbox=detection.bbox,
                     detection_confidence=detection.confidence,
                     text=text,
-                    ocr_success=ocr_result.success,
+                    ocr_success=bool(text),
                     ocr_confidence=confidence,
                     ocr_result=ocr_result,
                 )
@@ -181,6 +207,14 @@ class UITextExtractionService:
         raw = getattr(ocr_result, 'raw_results', None)
         if raw is None:
             return 0.0
+
+        # Recognition-only output (TextRecOutput) carries per-line scores
+        # directly and has no to_json(), unlike the det+rec output below.
+        scores = getattr(raw, 'scores', None)
+        if isinstance(scores, Sequence) and not isinstance(scores, (str, bytes)):
+            values = [float(v) for v in scores if isinstance(v, (int, float))]
+            if values:
+                return float(sum(values) / len(values))
 
         try:
             json_payload = raw.to_json() if hasattr(raw, 'to_json') else raw

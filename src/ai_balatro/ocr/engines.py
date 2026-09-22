@@ -233,13 +233,44 @@ class TesseractEngine(BaseEngine):
             )
 
 
+def _rec_lang(lang: str | None):
+    """Map a recognition language string to a RapidOCR LangRec, if any."""
+    if not lang:
+        return None
+
+    try:
+        from rapidocr import LangRec
+    except ImportError:
+        return None
+
+    if lang.strip().lower() in ('en', 'english'):
+        return LangRec.EN
+    return None
+
+
 class RapidOCREngine(BaseEngine):
     name = 'RapidOCR'
+
+    def __init__(self, lang: str = 'en', rec_lang: str | None = None) -> None:
+        """
+        Args:
+            lang: kept for the BaseEngine contract; RapidOCR picks models via
+                rec_lang instead.
+            rec_lang: recognition language to load, e.g. 'en'. None keeps
+                RapidOCR's default model, which also covers Latin script and is
+                what the card-description crops read best with. Only opt in
+                where a measurement says the English model wins.
+        """
+        super().__init__(lang)
+        self.rec_lang = rec_lang
 
     def init(self) -> None:
         try:
             t0 = time.time()
-            self._ocr = RapidOCR()
+            rec_lang = _rec_lang(self.rec_lang)
+            self._ocr = (
+                RapidOCR(params={'Rec.lang_type': rec_lang}) if rec_lang else RapidOCR()
+            )
             self._init_time = time.time() - t0
             self._inited = True
             self._init_error = None
@@ -282,12 +313,65 @@ class RapidOCREngine(BaseEngine):
         ocr_time = time.time() - t0
         texts = []
 
-        for line in results.to_json():
+        # to_json() yields None when the text detector found nothing.
+        for line in results.to_json() or []:
             for text in line['txt']:
                 texts.append(text)
             texts.append('\n')
 
         text_joined = ''.join(texts).strip()
+
+        return OcrResult(
+            name=self.name,
+            text=text_joined,
+            success=bool(text_joined),
+            init_time=self._init_time,
+            ocr_time=ocr_time,
+            total_time=self._init_time + ocr_time,
+            raw_results=results,
+        )
+
+    def run_text_line(self, image) -> OcrResult:
+        """Recognise an already-cropped region as a single line of text.
+
+        Skips the DB text detector, which is trained on words and lines and
+        finds nothing in a crop containing one large isolated glyph -- exactly
+        what Balatro's single-digit readouts are. Measured on a live frame, the
+        detector stage scored 2/10 fields against ground truth and skipping it
+        scored 8/10, the difference being every single-digit field.
+
+        Only for regions already localised by the UI detector; full frames still
+        need run().
+        """
+        if not getattr(self, '_ocr', None):
+            return OcrResult(
+                name=self.name,
+                text=f'ERROR: rapidocr not available ({getattr(self, "_init_error", "not installed")})',
+                success=False,
+                init_time=self._init_time,
+                ocr_time=0.0,
+                total_time=self._init_time,
+                raw_results=[],
+            )
+
+        t0 = time.time()
+        try:
+            results = self._ocr(image, use_det=False, use_cls=False, use_rec=True)
+        except Exception as e:  # noqa: BLE001
+            ocr_time = time.time() - t0
+            return OcrResult(
+                name=self.name,
+                text=f'ERROR: {e}',
+                success=False,
+                init_time=self._init_time,
+                ocr_time=ocr_time,
+                total_time=self._init_time + ocr_time,
+                raw_results=None,
+            )
+
+        ocr_time = time.time() - t0
+        texts = getattr(results, 'txts', None) or []
+        text_joined = ' '.join(t for t in texts if t).strip()
 
         return OcrResult(
             name=self.name,

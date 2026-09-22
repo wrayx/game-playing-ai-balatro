@@ -8,7 +8,10 @@ import pytest
 from ai_balatro.core.detection import Detection
 from ai_balatro.ocr.engines import OcrResult
 from ai_balatro.services.game_state_extraction import GameStateExtractionService
-from ai_balatro.services.ui_text_service import UITextExtractionService
+from ai_balatro.services.ui_text_service import (
+    UITextExtractionService,
+    _digits_only,
+)
 
 
 class StubRawResult:
@@ -30,7 +33,7 @@ class StubOCREngine:
         self.available = True
         self.calls = []
 
-    def run(self, image):  # noqa: ANN001 - signature matches RapidOCREngine
+    def run_text_line(self, image):  # noqa: ANN001 - matches RapidOCREngine
         self.calls.append(image.shape)
         return OcrResult(
             name='stub',
@@ -89,7 +92,7 @@ class EmptyPayloadEngine(StubOCREngine):
     def __init__(self):
         super().__init__(text='value', score=0.0)
 
-    def run(self, image):
+    def run_text_line(self, image):
         self.calls.append(image.shape)
         return OcrResult(
             name='stub',
@@ -210,3 +213,40 @@ def test_handles_empty_ocr_payload():
     assert results
     assert results[0].ocr_confidence == 0.0
     assert engine.calls, 'Expected OCR engine to be invoked'
+
+
+@pytest.mark.parametrize(
+    ('raw', 'expected'),
+    [
+        ('300', '300'),
+        ('$ 300', '300'),
+        ('-0', '0'),
+        ('-*0-', '0'),
+        (':', ''),
+        ('', ''),
+        ('value', ''),
+    ],
+)
+def test_digits_only_strips_recogniser_noise(raw, expected):
+    """The recogniser decorates isolated digits; every readout is numeric."""
+    assert _digits_only(raw) == expected
+
+
+def test_non_numeric_read_is_discarded():
+    """A read with no digits yields no value and is not reported as a success."""
+    frame = np.zeros((10, 20, 3), dtype=np.uint8)
+    detection = Detection(
+        class_id=1,
+        class_name='ui_data_hands_left',
+        confidence=0.9,
+        bbox=(0, 0, 8, 8),
+    )
+
+    engine = StubOCREngine(text='\u53e3', score=0.9)
+    service = UITextExtractionService(ocr_engine=engine, scale_factor=1.0)
+
+    results = service.extract(frame, [detection])
+
+    assert len(results) == 1
+    assert results[0].text == ''
+    assert results[0].ocr_success is False
