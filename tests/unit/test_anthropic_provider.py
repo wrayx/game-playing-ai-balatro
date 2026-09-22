@@ -181,3 +181,61 @@ class TestAdaptiveThinkingSupport:
         assert not AnthropicProvider(
             model_name=model, api_key='k'
         )._supports_modern_controls()
+
+
+class TestSystemPromptHandling:
+    """The agent builds OpenAI-style history; Anthropic wants system separately."""
+
+    def _request(self, monkeypatch, context):
+        captured = {}
+
+        class StubMessages:
+            def create(self, **kwargs):
+                captured.update(kwargs)
+                return Response([Block(type='text', text='ok')])
+
+        p = provider()
+        p.client = type('C', (), {'messages': StubMessages()})()
+        p.is_initialized = True
+        p.generate_text('the prompt', context=context)
+        return captured
+
+    def test_system_turn_is_hoisted_out_of_history(self, monkeypatch):
+        captured = self._request(
+            monkeypatch,
+            {'history': [{'role': 'system', 'content': 'you are an agent'}]},
+        )
+        assert captured['system'] == 'you are an agent'
+        assert all(m['role'] != 'system' for m in captured['messages'])
+        assert captured['messages'][-1] == {'role': 'user', 'content': 'the prompt'}
+
+    def test_non_system_history_is_preserved_in_order(self, monkeypatch):
+        captured = self._request(
+            monkeypatch,
+            {
+                'history': [
+                    {'role': 'system', 'content': 'sys'},
+                    {'role': 'user', 'content': 'first'},
+                    {'role': 'assistant', 'content': 'reply'},
+                ]
+            },
+        )
+        assert [m['role'] for m in captured['messages']] == [
+            'user',
+            'assistant',
+            'user',
+        ]
+
+    def test_explicit_system_message_is_combined(self, monkeypatch):
+        captured = self._request(
+            monkeypatch,
+            {
+                'history': [{'role': 'system', 'content': 'from history'}],
+                'system_message': 'explicit',
+            },
+        )
+        assert captured['system'] == 'from history\n\nexplicit'
+
+    def test_no_system_anywhere_omits_the_parameter(self, monkeypatch):
+        captured = self._request(monkeypatch, {})
+        assert 'system' not in captured

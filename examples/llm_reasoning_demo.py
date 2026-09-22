@@ -11,7 +11,8 @@ Usage:
     python examples/llm_reasoning_demo.py
 
 Requirements:
-    - OPENROUTER_API_KEY environment variable
+    - An LLM key: BALATRO_LLM_API_KEY (or ANTHROPIC_API_KEY), else
+      OPENROUTER_API_KEY. Override the model with BALATRO_LLM_MODEL.
     - Balatro game running and visible
 """
 
@@ -23,7 +24,8 @@ from typing import Optional
 # Add src directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from ai_balatro.ai.providers.openrouter import OpenRouterProvider
+from ai_balatro.ai.providers.base import LLMProvider
+from ai_balatro.ai.providers.factory import create_llm_provider
 from ai_balatro.ai.agents.balatro_agent import BalatroReasoningAgent, AgentContext
 from ai_balatro.core.multi_yolo_detector import MultiYOLODetector
 from ai_balatro.core.screen_capture import ScreenCapture
@@ -37,7 +39,7 @@ class LLMReasoningDemo:
 
     def __init__(self):
         """Initialize demo components."""
-        self.llm_provider: Optional[OpenRouterProvider] = None
+        self.llm_provider: Optional[LLMProvider] = None
         self.screen_capture: Optional[ScreenCapture] = None
         self.multi_detector: Optional[MultiYOLODetector] = None
         self.reasoning_agent: Optional[BalatroReasoningAgent] = None
@@ -46,24 +48,22 @@ class LLMReasoningDemo:
         """Initialize all AI components."""
 
         try:
-            # 1. Initialize LLM Provider
-            api_key = os.getenv('OPENROUTER_API_KEY')
-            if not api_key:
-                print('   ❌ OPENROUTER_API_KEY environment variable not set')
-                print('   💡 Please set your OpenRouter API key:')
-                print("      export OPENROUTER_API_KEY='your-api-key-here'")
+            # 1. Initialize the LLM provider whose credentials are present
+            self.llm_provider = create_llm_provider(timeout=120, max_retries=3)
+            if self.llm_provider is None:
+                print('   ❌ No LLM API key found')
+                print('   💡 Set one of these and try again:')
+                print("      export BALATRO_LLM_API_KEY='...'   # Anthropic")
+                print("      export OPENROUTER_API_KEY='...'    # OpenRouter")
                 return False
-
-            # Get model from environment variable or use default
-            model_name = os.getenv('OPENROUTER_MODEL', 'anthropic/claude-3.5-sonnet')
-
-            self.llm_provider = OpenRouterProvider(
-                model_name=model_name, timeout=60, max_retries=3
-            )
 
             if not self.llm_provider.initialize():
                 print('   ❌ Failed to initialize LLM provider')
                 return False
+
+            print(
+                f'   ✅ {self.llm_provider.name}: {self.llm_provider.config.model_name}'
+            )
 
             # 2. Initialize Computer Vision
             self.multi_detector = MultiYOLODetector()

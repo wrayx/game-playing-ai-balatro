@@ -240,7 +240,9 @@ class BaseAgent(ABC):
                 'history': conversation.get_messages_for_api()[
                     :-1
                 ],  # Exclude current message
-                'max_tokens': 1000,
+                # Thinking tokens count against max_tokens on current models,
+                # so 1000 truncates the reply before the tool call arrives.
+                'max_tokens': 8000,
                 'temperature': 0.3,
             }
 

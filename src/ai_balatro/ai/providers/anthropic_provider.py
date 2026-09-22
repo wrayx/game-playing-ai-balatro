@@ -18,7 +18,12 @@ logger = get_logger(__name__)
 #: other Anthropic tooling on the same machine also reads.
 API_KEY_ENV_VARS = ('BALATRO_LLM_API_KEY', 'ANTHROPIC_API_KEY')
 
-DEFAULT_MODEL = 'claude-opus-5'
+#: Sonnet rather than Opus: measured over real Balatro decisions through the
+#: production prompt, Sonnet matched Opus on every case at roughly 2.5x lower
+#: cost and lower latency. Haiku is cheaper still but played a no-pair hand
+#: while holding three discards, wasting one of the four hands that decide a
+#: run. Override with BALATRO_LLM_MODEL when a harder task warrants it.
+DEFAULT_MODEL = 'claude-sonnet-5'
 
 #: Model families that reject BOTH `thinking: {'type': 'adaptive'}` and
 #: `output_config.effort` with a 400. Haiku still takes the older fixed-budget
@@ -196,7 +201,21 @@ class AnthropicProvider(LLMProvider):
 
         context = context or {}
 
-        messages: List[Dict[str, Any]] = list(context.get('history') or [])
+        # Anthropic takes the system prompt in a top-level parameter, and Sonnet
+        # rejects a system message inside `messages` outright. The agent builds
+        # OpenAI-style history with the system prompt at messages[0], so hoist
+        # every system turn out of the history and into `system`.
+        messages: List[Dict[str, Any]] = []
+        system_parts: List[str] = []
+
+        for message in context.get('history') or []:
+            content = message.get('content')
+            if message.get('role') == 'system':
+                if isinstance(content, str) and content.strip():
+                    system_parts.append(content)
+            else:
+                messages.append(message)
+
         messages.append({'role': 'user', 'content': prompt})
 
         request: Dict[str, Any] = {
@@ -209,7 +228,10 @@ class AnthropicProvider(LLMProvider):
 
         system_message = context.get('system_message')
         if system_message:
-            request['system'] = system_message
+            system_parts.append(system_message)
+
+        if system_parts:
+            request['system'] = '\n\n'.join(system_parts)
 
         modern_controls = self._supports_modern_controls()
 
