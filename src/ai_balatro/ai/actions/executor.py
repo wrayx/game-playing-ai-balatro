@@ -54,17 +54,24 @@ class ActionExecutor(BaseProcessor):
             self.yolo_detector = None
             logger.info('ActionExecutor创建默认多模型YOLO检测器')
 
+        # OCR 服务在两个子执行器之间共享，避免重复加载模型
+        from ...services.ui_text_service import UITextExtractionService
+
+        self._ui_text_service = (
+            UITextExtractionService() if self.multi_detector is not None else None
+        )
+
         # 初始化子执行器
         self.card_engine = CardActionEngine(
             yolo_detector=self.yolo_detector,
             screen_capture=self.screen_capture,
             multi_detector=self.multi_detector,
+            ui_text_service=self._ui_text_service,
         )
 
         # 商店执行器（仅在检测到多模型时可用）
         self.shop_engine = None
         if self.multi_detector is not None:
-            from ...services.ui_text_service import UITextExtractionService
             from .shop_engine import ShopActionEngine
 
             self.shop_engine = ShopActionEngine(
@@ -72,7 +79,7 @@ class ActionExecutor(BaseProcessor):
                 multi_detector=self.multi_detector,
                 mouse_controller=self.card_engine.mouse_controller,
                 button_detector=self.card_engine.button_detector,
-                ui_text_service=UITextExtractionService(),
+                ui_text_service=self._ui_text_service,
             )
 
         logger.info('ActionExecutor初始化完成')

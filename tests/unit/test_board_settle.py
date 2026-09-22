@@ -45,6 +45,7 @@ def engine(entity_frames, ui_frames):
     instance.screen_capture = type(
         'C', (), {'capture_once': staticmethod(lambda: FRAME)}
     )()
+    instance.ui_text_service = None  # score unreadable in tests
     return instance
 
 
@@ -68,11 +69,25 @@ def test_reports_failure_when_the_board_keeps_changing():
     assert e._wait_until_settled(timeout=0.3, interval=0.01) is False
 
 
-def test_signature_includes_both_hand_and_buttons():
+def test_signature_includes_hand_buttons_and_score():
     e = engine([[card(100)]], [[button('button_cash_out'), button('button_options')]])
-    count, buttons = e._board_signature(FRAME)
+    count, buttons, score = e._board_signature(FRAME)
     assert count == 1
     assert buttons == frozenset({'button_cash_out', 'button_options'})
+    assert score == ''  # no OCR service wired in the test
+
+
+def test_a_changing_score_keeps_the_board_unsettled():
+    """The hand does not change while a hand scores, so the score is the only
+    signal that the animation is still running."""
+    import itertools
+
+    scores = itertools.cycle(['100', '232', '410', '590'])
+    e = engine([[card(100)]], [[button('button_play')]])
+    e.ui_text_service = object()
+    e._round_score = lambda *a, **k: next(scores)
+
+    assert e._wait_until_settled(timeout=0.3, interval=0.001) is False
 
 
 def test_does_not_settle_on_only_the_permanent_buttons():

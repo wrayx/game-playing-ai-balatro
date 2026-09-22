@@ -1,7 +1,7 @@
 """Main card action engine for executing card-based actions in Balatro."""
 
 import time
-from typing import List, Optional
+from typing import Any, List, Optional
 import numpy as np
 from ...core.detection import Detection
 from ...core.yolo_detector import YOLODetector
@@ -27,6 +27,7 @@ class CardActionEngine:
         yolo_detector: Optional[YOLODetector] = None,
         screen_capture: Optional[ScreenCapture] = None,
         multi_detector: Optional[MultiYOLODetector] = None,
+        ui_text_service: Optional[Any] = None,
     ):
         """
         Initialize card action engine.
@@ -41,6 +42,8 @@ class CardActionEngine:
             raise ValueError('screen_capture is required')
 
         self.screen_capture = screen_capture
+        # Optional: used to tell a scoring animation from a finished board.
+        self.ui_text_service = ui_text_service
 
         # Support backward compatible single detector or new multi-model detector
         if multi_detector is not None:
@@ -652,13 +655,40 @@ class CardActionEngine:
         """
         hand_count = len(self._detect_hand(frame))
         buttons = frozenset()
+        ui_detections = []
         if self.multi_detector is not None:
+            ui_detections = self.multi_detector.detect_ui(frame)
             buttons = frozenset(
                 d.class_name.lower()
-                for d in self.multi_detector.detect_ui(frame)
+                for d in ui_detections
                 if d.class_name.lower().startswith('button_')
             )
-        return hand_count, buttons
+        return hand_count, buttons, self._round_score(frame, ui_detections)
+
+    def _round_score(self, frame: np.ndarray, ui_detections: List[Detection]) -> str:
+        """The round score as text, or '' when it cannot be read.
+
+        Part of the settled signature because it is the only thing that moves
+        while a hand is scoring. The hand count does not change during the
+        animation, so a board mid-score looks identical to a finished one --
+        which is how an agent read the Cash Out screen before the button
+        existed and guessed which one to press.
+        """
+        if self.ui_text_service is None:
+            return ''
+
+        score = [
+            d for d in ui_detections if d.class_name.lower() == 'ui_score_round_score'
+        ]
+        if not score:
+            return ''
+
+        try:
+            for extraction in self.ui_text_service.extract(frame, score):
+                return extraction.text
+        except Exception:  # noqa: BLE001
+            logger.debug('Could not read the round score', exc_info=True)
+        return ''
 
     def _wait_until_settled(
         self, timeout: Optional[float] = None, interval: float = 0.35
@@ -685,7 +715,7 @@ class CardActionEngine:
             frame = self.screen_capture.capture_once()
             if frame is not None:
                 signature = self._board_signature(frame)
-                hand_count, buttons = signature
+                hand_count, buttons = signature[0], signature[1]
                 actionable = hand_count > 0 or bool(buttons - self.PERSISTENT_BUTTONS)
 
                 matches = matches + 1 if signature == previous else 0
