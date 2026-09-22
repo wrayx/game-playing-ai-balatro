@@ -157,15 +157,17 @@ class ButtonDetector:
         return buttons[0] if buttons else None
 
     def _is_button(self, detection: Detection) -> bool:
-        """Check if the detection result is a button."""
-        class_name = detection.class_name.lower()
+        """Check whether a detection is an actual button.
 
-        # Check if it contains button keyword or is in mapping table
-        return (
-            'button' in class_name
-            or class_name in self.button_class_map
-            or self._matches_button_keywords(class_name)
-        )
+        The UI model names every button class 'button_*' and every readout
+        'ui_*'. Matching on a contained keyword instead accepted readouts as
+        buttons: 'ui_data_discards_left', the discards-remaining counter, was
+        offered as a discard button and lost to the real one by 0.011
+        confidence on a live discard. Had it won, the action would have clicked
+        the counter and reported success.
+        """
+        class_name = detection.class_name.lower()
+        return class_name.startswith('button_') or class_name in self.button_class_map
 
     def _get_button_type(self, detection: Detection) -> str:
         """Get button type from detection result."""
@@ -186,11 +188,3 @@ class ButtonDetector:
             f'Cannot recognize button type: {class_name}, returning default type'
         )
         return 'unknown'
-
-    def _matches_button_keywords(self, class_name: str) -> bool:
-        """Check if class name matches button keywords."""
-        for config in BUTTON_CONFIG.values():
-            keywords = [kw.lower() for kw in config['keywords']]
-            if any(keyword in class_name for keyword in keywords):
-                return True
-        return False
