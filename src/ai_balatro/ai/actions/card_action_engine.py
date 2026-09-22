@@ -258,15 +258,44 @@ class CardActionEngine:
 
             logger.info(f'Successfully clicked {clicked_count} cards')
 
-            # 7. Wait for button to appear and click confirmation button
+            # 7. Confirm the intended cards really are selected before
+            # committing. macOS sometimes swallows a click into a window that
+            # is not the active application, and pressing Play one card short
+            # spends a hand on a hand the caller never chose.
             time.sleep(0.8)  # Wait for UI to update after clicking cards
 
-            # Recapture screen to get updated button state
             frame = self.screen_capture.capture_once()
             if frame is None:
                 logger.warning(
                     'Cannot recapture screen for button detection, using old frame'
                 )
+            else:
+                wanted = sorted(set(indices))
+                selected = self._selected_indices(hand_cards, frame)
+
+                retry = [i for i in wanted if i not in selected]
+                if retry:
+                    logger.warning(
+                        f'Cards {retry} did not register as selected; retrying'
+                    )
+                    for index in retry:
+                        self._click_card(hand_cards[index], index)
+                        time.sleep(self.mouse_controller.click_interval)
+                    time.sleep(0.8)
+                    recheck = self.screen_capture.capture_once()
+                    if recheck is not None:
+                        frame = recheck
+                        selected = self._selected_indices(hand_cards, frame)
+
+                if sorted(selected) != wanted:
+                    result['error_message'] = (
+                        f'Refusing to {action_type}: wanted cards {wanted} '
+                        f'selected but the game shows {sorted(selected)}'
+                    )
+                    logger.error(result['error_message'])
+                    return result
+
+                logger.info(f'Verified selection {sorted(selected)}')
 
             button_type = 'play' if action_type == 'play' else 'discard'
             logger.info(f'Looking for {button_type} button in updated screen')
@@ -497,6 +526,47 @@ class CardActionEngine:
         except Exception as e:
             logger.error(f'Error occurred while executing click operations: {e}')
             return False
+
+    #: A selected card lifts clear of the few pixels a hover adds.
+    SELECTION_LIFT_PX = 10
+
+    def _detect_hand(self, frame: np.ndarray) -> List[Detection]:
+        """Detect hand cards in a frame using whichever detector is configured."""
+        if self.multi_detector is not None:
+            detections = self.multi_detector.detect_entities(frame)
+        elif self.yolo_detector is not None:
+            detections = self.yolo_detector.detect(frame)
+        else:
+            return []
+        return self.position_detector.get_hand_cards(detections)
+
+    def _selected_indices(
+        self, baseline: List[Detection], frame: np.ndarray
+    ) -> List[int]:
+        """Indices of baseline cards that are currently selected.
+
+        Selecting a card raises it on screen and leaves its x alone, so cards
+        are matched by x and judged by height. The lowest card on screen is the
+        reference: selection only ever lifts, so with a full hand at least one
+        card is always unselected. Hovering lifts a card a few pixels, well
+        under SELECTION_LIFT_PX.
+        """
+        current = self._detect_hand(frame)
+        if not current:
+            return []
+
+        floor = max(card.bbox[1] for card in current)
+        selected: List[int] = []
+
+        for index, card in enumerate(baseline):
+            matches = [c for c in current if abs(c.bbox[0] - card.bbox[0]) < 25]
+            if not matches:
+                continue
+            match = min(matches, key=lambda c: abs(c.bbox[0] - card.bbox[0]))
+            if floor - match.bbox[1] >= self.SELECTION_LIFT_PX:
+                selected.append(index)
+
+        return selected
 
     def _click_card(self, card: Detection, index: int) -> bool:
         """Click specified card."""
