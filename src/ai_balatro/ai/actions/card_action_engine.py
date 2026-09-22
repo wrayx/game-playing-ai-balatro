@@ -242,6 +242,17 @@ class CardActionEngine:
                     '! Window focus handling failed, continuing with operation'
                 )
 
+            # Capture reads a screen rectangle, so a window over the game is
+            # analysed in its place. Clicking on that lands in someone else's
+            # application, so refuse instead.
+            if not self.mouse_controller.is_game_foreground():
+                result['error_message'] = (
+                    'Refusing to act: another window is in front of the game, '
+                    'so the detections do not describe the board'
+                )
+                logger.error(result['error_message'])
+                return result
+
             # 6. Click selected cards by indices
             logger.info(f'Selecting cards at indices {indices} for {action_type}')
             clicked_count = 0

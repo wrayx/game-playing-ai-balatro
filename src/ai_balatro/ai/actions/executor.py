@@ -303,6 +303,14 @@ class ActionExecutor(BaseProcessor):
             if not focus_ok:
                 logger.warning('窗口焦点处理失败，继续尝试点击按钮')
 
+            # A window over the game is captured in its place, so a "button"
+            # found in it belongs to another application. Refuse rather than
+            # click there.
+            if not self.card_engine.mouse_controller.is_game_foreground():
+                message = 'Refusing to click: another window is in front of the game'
+                logger.error(message)
+                return ProcessingResult(success=False, data=None, errors=[message])
+
             # Convert detection coordinates to screen coordinates
             capture_region = self.screen_capture.get_capture_region()
             frame_height, frame_width = frame.shape[:2]

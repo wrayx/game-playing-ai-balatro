@@ -290,27 +290,37 @@ class MouseController:
         return int(pid) if pid else None
 
     def _is_game_active(self, pid: int) -> bool:
-        """Check whether the game is the ACTIVE APPLICATION.
+        """Whether the game owns the frontmost ordinary window.
 
-        macOS swallows the first click into an inactive application, and what
-        decides that is the active app rather than the frontmost window: an app
-        with no windows of its own (Finder) can hold activation while the game
-        window is still visually on top. Checking window order alone reports a
-        false positive in exactly that case.
+        Read from Quartz window order rather than NSWorkspace. NSWorkspace's
+        frontmostApplication() is cached per process and only refreshes on a
+        run loop, so polling it in a script returns whatever was true at first
+        access -- it reported a stale app through an entire focus attempt and
+        made working activation look broken.
+
+        The tradeoff is that an app holding activation without any windows, such
+        as Finder, is not detected. That does not matter for either caller: an
+        app with no windows occludes nothing, and a click still lands on the
+        game's window.
         """
-        try:
-            from AppKit import NSWorkspace
-        except ImportError:
-            pass
-        else:
-            try:
-                app = NSWorkspace.sharedWorkspace().frontmostApplication()
-                if app is not None:
-                    return int(app.processIdentifier()) == pid
-            except Exception:  # noqa: BLE001
-                logger.debug('NSWorkspace lookup failed', exc_info=True)
+        return self._front_window_pid() == pid
 
-        # Fallback for a machine without AppKit: front-to-back window order.
+    def _wait_for_activation(self, pid: int, timeout: float = 2.0) -> bool:
+        """Poll until the OS reports the game active, or give up.
+
+        Activation is asynchronous: osascript returns before NSWorkspace
+        reflects the change. A single short sleep reported failure while the
+        switch was still in flight, which made every focus attempt look broken.
+        """
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self._is_game_active(pid):
+                return True
+            time.sleep(0.1)
+        return False
+
+    def _front_window_pid(self) -> Optional[int]:
+        """PID owning the frontmost ordinary window, per Quartz window order."""
         try:
             import Quartz
 
@@ -320,13 +330,36 @@ class MouseController:
                 Quartz.kCGNullWindowID,
             )
         except Exception:  # noqa: BLE001
-            return False
+            return None
 
         for window in windows:
+            # Front to back; the first ordinary window is the frontmost one.
             if window.get('kCGWindowLayer', 0) != 0:
                 continue
-            return window.get('kCGWindowOwnerPID') == pid
-        return False
+            return window.get('kCGWindowOwnerPID')
+        return None
+
+    def is_game_foreground(self) -> bool:
+        """Whether the game owns the window on top of its own capture region.
+
+        Capture takes a screen rectangle, not a window, so anything sitting over
+        the game is captured in its place -- YOLO has read cards out of video
+        thumbnails that way, and an agent run issued a click request while a
+        browser covered the board. Every action path checks this before
+        clicking, so a covered game is refused rather than clicked through.
+        """
+        pid = self._game_pid()
+        if pid is None:
+            logger.warning('No game window recorded; cannot confirm foreground')
+            return False
+
+        front = self._front_window_pid()
+        if front != pid:
+            logger.warning(
+                f'Another window (pid {front}) is in front of the game (pid {pid})'
+            )
+            return False
+        return True
 
     def _ensure_focus_macos(self, capture_region: dict) -> bool:
         """Ensure the game window is frontmost, verifying rather than assuming.
@@ -366,17 +399,16 @@ class MouseController:
             except Exception as e:  # noqa: BLE001
                 logger.warning(f'macOS focus handling failed: {e}')
 
-            time.sleep(0.2)
-            if self._is_game_active(pid):
+            if self._wait_for_activation(pid):
                 logger.info('Activated game window using AppleScript')
                 return True
 
         if self.focus_method in ('click', 'auto'):
             self._click_to_focus(capture_region)
-            time.sleep(0.2)
             if pid is None:
+                time.sleep(0.2)
                 return True  # nothing to verify against
-            if self._is_game_active(pid):
+            if self._wait_for_activation(pid):
                 logger.info('Activated game window by clicking its title bar')
                 return True
 
