@@ -281,6 +281,31 @@ class MouseController:
             logger.warning(f'Window focus handling failed: {e}')
             return True  # Don't block subsequent operations on failure
 
+    #: Where to rest the cursor, as a fraction of the window. Empty felt on
+    #: every screen: above the shop panel, above the hand, below the score row.
+    PARK_POSITION = (0.5, 0.22)
+
+    def park_cursor(self) -> bool:
+        """Move the cursor somewhere it raises no tooltip.
+
+        Whatever the cursor rests on renders a tooltip, and that tooltip is
+        captured along with everything else. Left on a shop item it covers the
+        Next Round and Reroll buttons entirely, so the UI model reports only
+        Options and Run Info and the agent cannot leave the shop.
+        """
+        if not self.screen_capture:
+            return False
+
+        region = self.screen_capture.get_capture_region()
+        if not region:
+            return False
+
+        x_fraction, y_fraction = self.PARK_POSITION
+        return self.smooth_move_to(
+            int(region['left'] + region['width'] * x_fraction),
+            int(region['top'] + region['height'] * y_fraction),
+        )
+
     def _game_pid(self) -> Optional[int]:
         """PID of the detected game window, if the capture layer found one."""
         if not self.screen_capture:

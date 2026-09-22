@@ -41,3 +41,28 @@ def test_is_game_active_reads_window_order():
     which made a working activation look like a failure."""
     assert controller(GAME_PID)._is_game_active(GAME_PID) is True
     assert controller(OTHER_PID)._is_game_active(GAME_PID) is False
+
+
+class TestCursorParking:
+    """A resting cursor raises a tooltip, and the tooltip is captured too."""
+
+    def _controller(self, region):
+        instance = MouseController.__new__(MouseController)
+        instance.screen_capture = type(
+            'C', (), {'get_capture_region': staticmethod(lambda: region)}
+        )()
+        moved = []
+        instance.smooth_move_to = lambda x, y: moved.append((x, y)) or True
+        instance._moved = moved
+        return instance
+
+    def test_parks_inside_the_window_above_the_content(self):
+        region = {'left': 8, 'top': 49, 'width': 932, 'height': 602}
+        controller = self._controller(region)
+        assert controller.park_cursor() is True
+        x, y = controller._moved[0]
+        assert region['left'] < x < region['left'] + region['width']
+        assert region['top'] < y < region['top'] + region['height'] * 0.4
+
+    def test_no_capture_region_is_not_an_error(self):
+        assert self._controller(None).park_cursor() is False

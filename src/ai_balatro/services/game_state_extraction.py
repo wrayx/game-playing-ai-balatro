@@ -61,6 +61,13 @@ class GameStateExtractionService:
         capture_card_descriptions: bool = True,
     ) -> Optional[Dict[str, Any]]:
         """Capture a full game state snapshot with optional card description OCR."""
+        if frame is None and self.mouse_controller is not None:
+            # A cursor left on a card or shop item raises a tooltip that covers
+            # whatever is behind it, and that tooltip is captured as part of the
+            # board. Park before looking.
+            self.mouse_controller.park_cursor()
+            time.sleep(0.25)
+
         frame = frame if frame is not None else self.screen_capture.capture_once()
         if frame is None:
             logger.error('Game state capture failed: no frame available')
