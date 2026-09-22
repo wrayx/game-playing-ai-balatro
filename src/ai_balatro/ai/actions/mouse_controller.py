@@ -281,13 +281,18 @@ class MouseController:
             logger.warning(f'Window focus handling failed: {e}')
             return True  # Don't block subsequent operations on failure
 
-    #: Where to rest the cursor, as a fraction of the window. Must be clear of
-    #: everything that raises a tooltip in any phase. The centre-top looks
-    #: empty but is the owned-joker row, so parking there hovered a joker and
-    #: its tooltip covered the Cash Out button -- stranding the agent on the
-    #: screen it was supposed to read. The right-hand side, above the deck, is
-    #: outside the shop panel, the blind panels and the cash-out panel alike.
-    PARK_POSITION = (0.85, 0.30)
+    #: Where to rest the cursor, as a fraction of the window. Whatever it
+    #: rests on raises a tooltip, and that tooltip is captured as part of the
+    #: board, so this has to miss everything hoverable in every phase. Two
+    #: earlier choices each looked like empty felt and were not: the top centre
+    #: is the owned-joker row, where a tooltip covered the Cash Out button, and
+    #: the top right is the consumable slot, where one covered the blind Select
+    #: button. Both only became wrong once the agent could buy things.
+    #:
+    #: The far-right strip is outside every region that holds anything: the
+    #: joker row and consumables along the top, the hand along the bottom, the
+    #: deck, the side panel, and the shop, blind and cash-out panels.
+    PARK_POSITION = (0.97, 0.55)
 
     def park_cursor(self) -> bool:
         """Move the cursor somewhere it raises no tooltip.

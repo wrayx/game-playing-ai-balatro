@@ -56,27 +56,29 @@ class TestCursorParking:
         instance._moved = moved
         return instance
 
-    def test_parks_inside_the_window_above_the_content(self):
+    def test_parks_inside_the_window(self):
         region = {'left': 8, 'top': 49, 'width': 932, 'height': 602}
         controller = self._controller(region)
         assert controller.park_cursor() is True
         x, y = controller._moved[0]
         assert region['left'] < x < region['left'] + region['width']
-        assert region['top'] < y < region['top'] + region['height'] * 0.4
+        assert region['top'] < y < region['top'] + region['height']
 
     def test_no_capture_region_is_not_an_error(self):
         assert self._controller(None).park_cursor() is False
 
 
-def test_park_position_clears_the_owned_joker_row():
-    """The jokers you own sit across the top-centre of the window.
+def test_park_position_clears_everything_hoverable():
+    """Whatever the cursor rests on raises a tooltip that is then captured.
 
-    Parking there hovered one, and its tooltip covered the Cash Out button, so
-    the agent could not read the screen it had to act on. Verified live: with
-    the cursor on the joker row only Options and Run Info were detected; moved
-    off it, Cash Out appeared.
+    Two earlier positions each looked like empty felt: the top centre is the
+    owned-joker row, whose tooltip covered Cash Out, and the top right is the
+    consumable slot, whose tooltip covered the blind Select button. Both only
+    became wrong once the agent could buy things. The right-hand strip misses
+    the joker row, consumables, the hand, the deck and the side panel alike.
     """
     x_fraction, y_fraction = MouseController.PARK_POSITION
-    assert y_fraction > 0.25 or x_fraction > 0.75, (
-        'park position must avoid the joker row across the top-centre'
-    )
+    assert x_fraction > 0.92, 'park must sit right of the deck and every panel'
+    assert 0.0 < y_fraction < 1.0, 'park must stay inside the window'
+    assert (x_fraction, y_fraction) != (0.5, 0.22), 'that is the joker row'
+    assert (x_fraction, y_fraction) != (0.85, 0.30), 'that is the consumable slot'
