@@ -76,3 +76,28 @@ def test_ignores_a_card_that_is_no_longer_detected():
 def test_empty_detection_reports_nothing_selected():
     baseline = hand(0, 0)
     assert engine_for([])._selected_indices(baseline, FRAME) == []
+
+
+class TestCorrectingInBothDirections:
+    """A stray selection must be cleared, not just missing ones added.
+
+    Clicking only the missing cards leaves an extra selected, so the check that
+    follows refuses again -- and keeps refusing, since nothing ever clears it.
+    """
+
+    def test_extra_selection_is_visible_to_the_check(self):
+        baseline = hand(0, 0, 0, 0)
+        current = hand(LIFT, 0, 0, LIFT)
+        selected = engine_for(current)._selected_indices(baseline, FRAME)
+        wanted = [3]
+        assert selected == [0, 3]
+        assert [i for i in selected if i not in wanted] == [0]
+
+    def test_nothing_to_correct_when_the_selection_already_matches(self):
+        baseline = hand(0, 0, 0, 0)
+        current = hand(0, LIFT, 0, LIFT)
+        selected = engine_for(current)._selected_indices(baseline, FRAME)
+        wanted = [1, 3]
+        assert selected == wanted
+        assert [i for i in wanted if i not in selected] == []
+        assert [i for i in selected if i not in wanted] == []

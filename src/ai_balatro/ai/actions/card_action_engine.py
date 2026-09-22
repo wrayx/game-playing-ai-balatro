@@ -273,14 +273,24 @@ class CardActionEngine:
                 wanted = sorted(set(indices))
                 selected = self._selected_indices(hand_cards, frame)
 
-                retry = [i for i in wanted if i not in selected]
-                if retry:
-                    logger.warning(
-                        f'Cards {retry} did not register as selected; retrying'
-                    )
-                    for index in retry:
-                        self._click_card(hand_cards[index], index)
-                        time.sleep(self.mouse_controller.click_interval)
+                # Correct in both directions. Clicking only the missing cards
+                # leaves a stray selection in place -- one left over from an
+                # earlier action makes every future action refuse, which
+                # deadlocks the caller. Clicking a selected card deselects it.
+                missing = [i for i in wanted if i not in selected]
+                extra = [i for i in selected if i not in wanted]
+
+                if missing or extra:
+                    if missing:
+                        logger.warning(f'Cards {missing} did not register; clicking')
+                    if extra:
+                        logger.warning(
+                            f'Cards {extra} selected but not wanted; deselecting'
+                        )
+                    for index in sorted(set(missing) | set(extra)):
+                        if index < len(hand_cards):
+                            self._click_card(hand_cards[index], index)
+                            time.sleep(self.mouse_controller.click_interval)
                     time.sleep(0.8)
                     recheck = self.screen_capture.capture_once()
                     if recheck is not None:
@@ -309,6 +319,8 @@ class CardActionEngine:
                 logger.info(
                     f'✓ {action_type.capitalize()} action executed successfully'
                 )
+                # Do not hand back control mid-deal.
+                self._wait_until_settled()
             else:
                 result['error_message'] = f'Failed to click {button_type} button'
                 logger.error(result['error_message'])
@@ -567,6 +579,48 @@ class CardActionEngine:
                 selected.append(index)
 
         return selected
+
+    #: How long to wait for the board to stop changing after an action.
+    SETTLE_TIMEOUT = 8.0
+
+    def _wait_until_settled(
+        self, timeout: Optional[float] = None, interval: float = 0.25
+    ) -> bool:
+        """Block until the hand stops changing after an action.
+
+        The click on Play or Discard returns before the game has finished
+        dealing: measured right after a discard, the hand read 7 cards for about
+        half a second before the replacements landed. Anything that captures
+        state in that window sees a partial hand, and a tooltip sweep over it
+        finds nothing -- which is how a caller ends up reasoning about cards it
+        could not read.
+
+        Note this tracks the hand only. The score counter animates for longer,
+        so a score read immediately afterwards can still be mid-count.
+        """
+        deadline = time.time() + (timeout or self.SETTLE_TIMEOUT)
+        previous: Optional[int] = None
+        stable = 0
+
+        while time.time() < deadline:
+            frame = self.screen_capture.capture_once()
+            if frame is not None:
+                count = len(self._detect_hand(frame))
+                if count > 0 and count == previous:
+                    stable += 1
+                    if stable >= 2:
+                        logger.info(f'Board settled with {count} cards in hand')
+                        return True
+                else:
+                    stable = 0
+                previous = count
+            time.sleep(interval)
+
+        logger.warning(
+            f'Hand did not settle within {timeout or self.SETTLE_TIMEOUT:.1f}s; '
+            f'the next capture may see a partial board'
+        )
+        return False
 
     def _click_card(self, card: Detection, index: int) -> bool:
         """Click specified card."""
