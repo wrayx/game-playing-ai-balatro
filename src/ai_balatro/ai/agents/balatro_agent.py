@@ -16,6 +16,41 @@ from ...utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+#: Appended to the prompt only while cards are on the table.
+PLAYING_DECISION_SECTION = """Based on the card descriptions and game state, make the optimal strategic decision:
+{poker_objectives}
+
+ACTION INSTRUCTIONS:
+1. Analyze the cards listed above (Card 0, Card 1, Card 2, etc.) with their descriptions
+2. Identify the best poker hand you can form from these cards
+3. Discarding cards may help you draw better cards to improve your hand, forming stronger poker hands
+4. Choose ONE action:
+
+   a) If you have a strong playable hand:
+      - Use play_cards(indices=[...]) with the indices of cards to play
+      - Example: play_cards(indices=[0, 1, 2, 3, 4]) to play first 5 cards
+      - Example: play_cards(indices=[0, 2, 4, 6, 7]) to play specific cards
+      - If you are holding 8, 8, 9, 2, 5, 10, J, Q, you should play 8, 9, 10, J, Q to form a straight, and the indices would be [0, 2, 5, 6, 7]
+
+   b) If you need better cards:
+      - Use discard_cards(indices=[...]) with the indices of cards to discard
+      - Example: discard_cards(indices=[5, 6, 7]) to discard last 3 cards
+      - Example: discard_cards(indices=[1, 3]) to discard specific unwanted cards
+      - If you are holding 8, 10, 2, 5, 5, J, Q, K, since 8, 10, J, Q, K forms with one addition 9 a better straight, try discarding 2 and 5, the indices would be [2, 3]
+
+   c) If you need to interact with UI:
+      - Use click_button(button_type='...') for UI actions
+
+Suits can be counted too, if you hold 3, 7, 8, J, 9, 2, 2, 4, suggesting high card but if you could identify the suits of the card, say
+3 of Hearts, 7 of Hearts, 8 of Hearts, J of Hearts, 9 of Hearts, 2 of Diamonds, 2 of Clubs, 4 of Spades, this would form a flush with Hearts suit, so playing these 5 cards would be a better option.
+
+Remember:
+- Cards are indexed from 0 (Card 0 is the leftmost)
+- You can only play OR discard in one action, not both
+- Provide clear reasoning for your choice
+
+Execute the best action immediately and explain your strategic reasoning."""
+
 
 class BalatroReasoningAgent(BaseAgent):
     """
@@ -335,12 +370,47 @@ Make immediate, optimal decisions based on the complete card information provide
                 f'\nCARD DESCRIPTIONS CAPTURED: {captured_count}/{total_cards} cards'
             )
 
+        screen_actions = {
+            'blind_won': (
+                'You have beaten this blind, so there are no cards to play.\n'
+                "Collect the reward with click_button(button_type='cash_out')."
+            ),
+            'blind_select': (
+                'You are choosing the next blind, so there are no cards to '
+                'play.\n'
+                "Start it with click_button(button_type='level_select'), or "
+                "pass it up with click_button(button_type='skip') to take the "
+                'tag instead.'
+            ),
+            'shop': (
+                'You are in the shop, so there are no cards to play. Buying is '
+                'not wired up yet, so leave with '
+                "click_button(button_type='next')."
+            ),
+            'unknown': (
+                'This is not a screen you can play cards on, and it may still '
+                'be animating.\nUse click_button with whichever button listed '
+                'above advances the game. Do not try to play or discard cards.'
+            ),
+        }
+
         poker_objectives = (
             '\nPOKER OBJECTIVES:\n'
             '- Form the strongest five-card poker hand from the detected cards.\n'
             '- Favor high-ranking combinations (pairs, straights, flushes, full houses, etc.).\n'
             '- Discard low-value cards that do not contribute to potential strong hands.'
         )
+
+        phase = game_state.get('game_phase', 'unknown')
+        if phase == 'playing':
+            decision_section = PLAYING_DECISION_SECTION.format(
+                poker_objectives=poker_objectives
+            )
+        else:
+            # Suppress the poker instructions entirely off the table. Leaving
+            # them in is what led an agent to call play_cards on the Cash Out
+            # screen, where there is no hand at all.
+            decision_section = f'WHAT TO DO NOW:\n{screen_actions.get(phase, screen_actions["unknown"])}'
 
         return f"""You are playing a game called Balatro, a game borrowed the concept of Texas Hold'em Poker and enhanced the gameplay with rogue-like level setup, and many different joker cards to manipulate the game rules.
 Most strategy comes from understanding the Texas Hold'em poker rules and making optimal plays based on the current hand and game phase.
@@ -389,39 +459,7 @@ Dynamic UI values ({len(game_state.get('ui_text_elements', []))} tracked):
 GAME PHASE: {game_state.get('game_phase', 'unknown')}
 </game_state>
 
-Based on the card descriptions and game state, make the optimal strategic decision:
-{poker_objectives}
-
-ACTION INSTRUCTIONS:
-1. Analyze the cards listed above (Card 0, Card 1, Card 2, etc.) with their descriptions
-2. Identify the best poker hand you can form from these cards
-3. Discarding cards may help you draw better cards to improve your hand, forming stronger poker hands
-4. Choose ONE action:
-
-   a) If you have a strong playable hand:
-      - Use play_cards(indices=[...]) with the indices of cards to play
-      - Example: play_cards(indices=[0, 1, 2, 3, 4]) to play first 5 cards
-      - Example: play_cards(indices=[0, 2, 4, 6, 7]) to play specific cards
-      - If you are holding 8, 8, 9, 2, 5, 10, J, Q, you should play 8, 9, 10, J, Q to form a straight, and the indices would be [0, 2, 5, 6, 7]
-
-   b) If you need better cards:
-      - Use discard_cards(indices=[...]) with the indices of cards to discard
-      - Example: discard_cards(indices=[5, 6, 7]) to discard last 3 cards
-      - Example: discard_cards(indices=[1, 3]) to discard specific unwanted cards
-      - If you are holding 8, 10, 2, 5, 5, J, Q, K, since 8, 10, J, Q, K forms with one addition 9 a better straight, try discarding 2 and 5, the indices would be [2, 3]
-
-   c) If you need to interact with UI:
-      - Use click_button(button_type='...') for UI actions
-
-Suits can be counted too, if you hold 3, 7, 8, J, 9, 2, 2, 4, suggesting high card but if you could identify the suits of the card, say
-3 of Hearts, 7 of Hearts, 8 of Hearts, J of Hearts, 9 of Hearts, 2 of Diamonds, 2 of Clubs, 4 of Spades, this would form a flush with Hearts suit, so playing these 5 cards would be a better option.
-
-Remember:
-- Cards are indexed from 0 (Card 0 is the leftmost)
-- You can only play OR discard in one action, not both
-- Provide clear reasoning for your choice
-
-Execute the best action immediately and explain your strategic reasoning."""
+{decision_section}"""
 
     def _create_decision_prompt_legacy(self, game_state: Dict[str, Any]) -> str:
         """Legacy planning prompt - replaced by integrated decision making."""

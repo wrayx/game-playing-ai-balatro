@@ -150,7 +150,7 @@ class GameStateExtractionService:
                     }
                 )
 
-        game_phase = self._infer_game_phase(buttons)
+        game_phase = self._infer_game_phase(buttons, hand_cards)
 
         game_state = {
             'timestamp': timestamp,
@@ -167,16 +167,37 @@ class GameStateExtractionService:
 
         return game_state, hand_cards
 
-    def _infer_game_phase(self, buttons: Sequence[Dict[str, Any]]) -> str:
-        names = [btn['class_name'].lower() for btn in buttons]
-        playing_keywords = ('play', 'discard', 'hand', 'hold')
+    def _infer_game_phase(
+        self,
+        buttons: Sequence[Dict[str, Any]],
+        hand_cards: Sequence[Detection] = (),
+    ) -> str:
+        """Name the screen the game is showing.
 
-        if any(any(keyword in btn for keyword in playing_keywords) for btn in names):
+        Cards in hand decide the playing phase rather than the Play button:
+        Balatro only renders Play and Discard once cards are selected, so a
+        button-only test reads a freshly dealt hand as 'unknown'. Keyword
+        matching had the mirror problem, since 'button_sort_hand_rank'
+        contains 'hand'.
+
+        The other screens are identified by a button that appears only there,
+        matched on the exact class rather than a substring.
+        """
+        if hand_cards:
             return 'playing'
-        if any('shop' in btn for btn in names):
+
+        classes = {btn['class_name'].lower() for btn in buttons}
+
+        if 'button_cash_out' in classes:
+            return 'blind_won'
+        if 'button_level_select' in classes:
+            return 'blind_select'
+        if classes & {
+            'button_store_next_round',
+            'button_store_reroll',
+            'button_purchase',
+        }:
             return 'shop'
-        if any('next' in btn for btn in names):
-            return 'transition'
         return 'unknown'
 
     def _enrich_ui_text(
