@@ -20,6 +20,12 @@ API_KEY_ENV_VARS = ('BALATRO_LLM_API_KEY', 'ANTHROPIC_API_KEY')
 
 DEFAULT_MODEL = 'claude-opus-5'
 
+#: Model families that reject BOTH `thinking: {'type': 'adaptive'}` and
+#: `output_config.effort` with a 400. Haiku still takes the older fixed-budget
+#: thinking form, which this provider does not send. Verified against the API,
+#: not inferred -- extend it when a 400 says so.
+_NO_MODERN_CONTROLS_PREFIXES = ('claude-haiku',)
+
 #: Current models reject temperature/top_p/top_k outright, so sampling controls
 #: are never sent. Thinking depth is steered with output_config.effort instead.
 DEFAULT_MAX_TOKENS = 16000
@@ -205,10 +211,12 @@ class AnthropicProvider(LLMProvider):
         if system_message:
             request['system'] = system_message
 
-        if self.thinking:
+        modern_controls = self._supports_modern_controls()
+
+        if self.thinking and modern_controls:
             request['thinking'] = {'type': 'adaptive'}
 
-        if self.effort:
+        if self.effort and modern_controls:
             request['output_config'] = {'effort': self.effort}
 
         if tools:
@@ -228,6 +236,11 @@ class AnthropicProvider(LLMProvider):
             return self._failure(f'Connection error: {e}')
 
         return self._normalise(response)
+
+    def _supports_modern_controls(self) -> bool:
+        """Whether this model accepts adaptive thinking and the effort knob."""
+        model = (self.config.model_name or '').lower()
+        return not model.startswith(_NO_MODERN_CONTROLS_PREFIXES)
 
     @staticmethod
     def _failure(message: str) -> ProcessingResult:

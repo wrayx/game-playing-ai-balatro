@@ -165,3 +165,19 @@ def test_uninitialised_provider_fails_cleanly(monkeypatch):
     result = AnthropicProvider().generate_text('hi')
     assert result.success is False
     assert result.errors == ['Provider not initialized']
+
+
+class TestAdaptiveThinkingSupport:
+    """Haiku rejects adaptive thinking with a 400; Opus and Sonnet require it."""
+
+    @pytest.mark.parametrize('model', ['claude-opus-5', 'claude-sonnet-5'])
+    def test_current_models_get_modern_controls(self, model):
+        assert AnthropicProvider(
+            model_name=model, api_key='k'
+        )._supports_modern_controls()
+
+    @pytest.mark.parametrize('model', ['claude-haiku-4-5', 'CLAUDE-HAIKU-4-5'])
+    def test_haiku_does_not(self, model):
+        assert not AnthropicProvider(
+            model_name=model, api_key='k'
+        )._supports_modern_controls()
