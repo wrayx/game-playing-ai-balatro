@@ -634,6 +634,14 @@ class CardActionEngine:
     #: finished rendering rather than that it is ready.
     PERSISTENT_BUTTONS = frozenset({'button_options', 'button_run_info'})
 
+    #: Consecutive matching samples required before calling the board settled.
+    #: Two was not enough: while a hand is scoring, the cards left behind sit
+    #: still long enough to match twice, so the board looked ready while the
+    #: blind was in fact ending. The score counter is what is still moving, and
+    #: reading it every sample would cost an OCR pass, so wait out the plateau
+    #: instead.
+    STABLE_SAMPLES = 3
+
     def _board_signature(self, frame: np.ndarray) -> tuple:
         """What the board looks like right now, for comparing two captures.
 
@@ -653,7 +661,7 @@ class CardActionEngine:
         return hand_count, buttons
 
     def _wait_until_settled(
-        self, timeout: Optional[float] = None, interval: float = 0.25
+        self, timeout: Optional[float] = None, interval: float = 0.35
     ) -> bool:
         """Block until the board stops changing after an action.
 
@@ -671,6 +679,7 @@ class CardActionEngine:
         """
         deadline = time.time() + (timeout or self.SETTLE_TIMEOUT)
         previous: Optional[tuple] = None
+        matches = 0
 
         while time.time() < deadline:
             frame = self.screen_capture.capture_once()
@@ -678,13 +687,16 @@ class CardActionEngine:
                 signature = self._board_signature(frame)
                 hand_count, buttons = signature
                 actionable = hand_count > 0 or bool(buttons - self.PERSISTENT_BUTTONS)
-                if signature == previous and actionable:
+
+                matches = matches + 1 if signature == previous else 0
+                previous = signature
+
+                if actionable and matches >= self.STABLE_SAMPLES - 1:
                     logger.info(
                         f'Board settled: {hand_count} cards in hand, '
                         f'{len(buttons)} buttons'
                     )
                     return True
-                previous = signature
             time.sleep(interval)
 
         logger.warning(

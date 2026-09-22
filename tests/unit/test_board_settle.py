@@ -89,3 +89,30 @@ def test_settles_once_a_real_button_appears():
     ready = persistent + [button('button_cash_out')]
     e = engine([[]], [persistent, ready, ready])
     assert e._wait_until_settled(timeout=3.0, interval=0.01) is True
+
+
+def test_a_single_repeat_is_not_enough():
+    """While a hand scores, the cards left behind sit still long enough to
+    match twice; the board looked ready while the blind was ending.
+
+    This board plateaus for exactly two samples before changing again, over
+    and over, so it must never be called settled.
+    """
+    import itertools
+
+    one = [card(100)]
+    two = [card(100), card(200)]
+    cycling = itertools.cycle([one, one, two, two])
+
+    e = engine([one], [[button('button_play')]])
+    # Cycle forever rather than exhausting a scripted list, which would end up
+    # repeating its last frame and settle for the wrong reason.
+    e.multi_detector.detect_entities = lambda *a, **k: next(cycling)
+
+    assert e._wait_until_settled(timeout=0.3, interval=0.001) is False
+
+
+def test_settles_after_enough_consecutive_matches():
+    steady = [[card(100), card(200)]]
+    e = engine(steady, [[button('button_play')]])
+    assert e._wait_until_settled(timeout=3.0, interval=0.01) is True
