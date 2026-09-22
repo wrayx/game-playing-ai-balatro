@@ -61,6 +61,20 @@ class ActionExecutor(BaseProcessor):
             multi_detector=self.multi_detector,
         )
 
+        # 商店执行器（仅在检测到多模型时可用）
+        self.shop_engine = None
+        if self.multi_detector is not None:
+            from ...services.ui_text_service import UITextExtractionService
+            from .shop_engine import ShopActionEngine
+
+            self.shop_engine = ShopActionEngine(
+                screen_capture=self.screen_capture,
+                multi_detector=self.multi_detector,
+                mouse_controller=self.card_engine.mouse_controller,
+                button_detector=self.card_engine.button_detector,
+                ui_text_service=UITextExtractionService(),
+            )
+
         logger.info('ActionExecutor初始化完成')
 
     def initialize(self) -> bool:
@@ -137,10 +151,41 @@ class ActionExecutor(BaseProcessor):
             return self._execute_hover_card(arguments)
         elif function_name == 'click_button':
             return self._execute_click_button(arguments)
+        elif function_name == 'buy_item':
+            return self._execute_buy_item(arguments)
         else:
             return ProcessingResult(
                 success=False, data=None, errors=[f'未知的函数: {function_name}']
             )
+
+    def _execute_buy_item(self, args: Dict[str, Any]) -> ProcessingResult:
+        """从商店购买一件物品。"""
+        if self.shop_engine is None:
+            return ProcessingResult(
+                success=False,
+                data=None,
+                errors=['商店执行器不可用（需要多模型检测器）'],
+            )
+
+        index = args.get('index')
+        if not isinstance(index, int) or index < 0:
+            return ProcessingResult(
+                success=False, data=None, errors=['index 必须是非负整数']
+            )
+
+        result = self.shop_engine.execute_buy(index, args.get('description', ''))
+
+        return ProcessingResult(
+            success=result['success'],
+            data={
+                'action': 'buy_item',
+                'index': index,
+                'description': args.get('description', ''),
+                'cash_before': result.get('cash_before'),
+                'cash_after': result.get('cash_after'),
+            },
+            errors=[result['error_message']] if not result['success'] else [],
+        )
 
     def _execute_play_cards(self, args: Dict[str, Any]) -> ProcessingResult:
         """执行出牌操作（通过卡牌索引）。"""

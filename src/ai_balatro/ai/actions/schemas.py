@@ -181,6 +181,27 @@ GAME_ACTIONS = [
         },
     },
     {
+        'name': 'buy_item',
+        'description': (
+            'Buy one item from the shop by its position, counting from the '
+            'left starting at 0'
+        ),
+        'parameters': {
+            'type': 'object',
+            'properties': {
+                'index': {
+                    'type': 'integer',
+                    'description': 'Which shop item to buy, 0 for the leftmost',
+                },
+                'description': {
+                    'type': 'string',
+                    'description': 'Why this item is worth its price',
+                },
+            },
+            'required': ['index'],
+        },
+    },
+    {
         'name': 'click_button',
         'description': 'Click game interface button',
         'parameters': {
