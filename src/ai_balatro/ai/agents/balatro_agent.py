@@ -146,14 +146,51 @@ Card indexing:
 
 Make immediate, optimal decisions based on the complete card information provided."""
 
+    #: How many times to look again when the screen is not recognisable.
+    UNKNOWN_PHASE_RETRIES = 4
+
+    #: How long to wait between those looks.
+    UNKNOWN_PHASE_DELAY = 1.5
+
+    def _capture_recognisable_state(self) -> Optional[Dict[str, Any]]:
+        """Capture the board, waiting out a screen that is mid-transition.
+
+        Balatro animates in stages, so a capture can land between them and see
+        no cards and no actionable buttons. Asking the model to decide from
+        that produces a guess -- it picked 'next' on the Cash Out screen more
+        than once -- and no amount of settling after an action prevents it,
+        because the next screen can arrive later still.
+
+        Waiting is free and a wrong button is not, so look again rather than
+        reason about a screen that is not there yet.
+        """
+        game_state = None
+
+        for attempt in range(self.UNKNOWN_PHASE_RETRIES + 1):
+            game_state = self.game_state_extractor.capture_state(
+                capture_card_descriptions=True
+            )
+            if game_state is None:
+                return None
+            if game_state.get('game_phase') != 'unknown':
+                return game_state
+
+            if attempt < self.UNKNOWN_PHASE_RETRIES:
+                logger.info(
+                    f'Screen not recognisable yet; looking again '
+                    f'({attempt + 1}/{self.UNKNOWN_PHASE_RETRIES})'
+                )
+                time.sleep(self.UNKNOWN_PHASE_DELAY)
+
+        logger.warning('Screen still not recognisable; reasoning about it anyway')
+        return game_state
+
     def analyze_situation(self, context: AgentContext) -> AgentResult:
         """Analyze current Balatro game state and make immediate strategic decision."""
         try:
             logger.info('Analyzing Balatro game situation and planning action...')
 
-            game_state = self.game_state_extractor.capture_state(
-                capture_card_descriptions=True
-            )
+            game_state = self._capture_recognisable_state()
 
             if game_state is None:
                 return AgentResult(
