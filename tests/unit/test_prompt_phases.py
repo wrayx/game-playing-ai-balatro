@@ -147,3 +147,10 @@ class TestShopPrompt:
     def test_shop_prompt_drops_the_poker_instructions(self):
         prompt = agent()._create_analysis_prompt(shop_state())
         assert 'POKER OBJECTIVES' not in prompt
+
+
+def test_pack_opening_tells_it_to_skip_not_play():
+    prompt = agent()._create_analysis_prompt(state('pack_opening'))
+    assert "button_type='skip'" in prompt
+    assert 'not your hand' in prompt
+    assert 'POKER OBJECTIVES' not in prompt

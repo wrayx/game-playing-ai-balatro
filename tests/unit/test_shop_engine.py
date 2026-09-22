@@ -53,7 +53,14 @@ def engine(entities_list, ui_list, foreground=True):
         },
     )()
     instance.mouse_controller = type(
-        'M', (), {'is_game_foreground': staticmethod(lambda: foreground)}
+        'M',
+        (),
+        {
+            'is_game_foreground': staticmethod(lambda: foreground),
+            # Clicks fail in tests; the buy path should report that rather
+            # than raise, and the pack guard must run before any of it.
+            'click_at': staticmethod(lambda *a, **k: False),
+        },
     )()
     instance.ui_text_service = None
     instance.button_detector = None
@@ -138,3 +145,21 @@ class TestNextRoundFallback:
     def test_looks_like_shop_needs_something_for_sale(self):
         assert engine([item(100)], [tag(120)]).looks_like_shop(FRAME) is True
         assert engine([item(100)], []).looks_like_shop(FRAME) is False
+
+
+class TestPackPurchases:
+    """Packs open a selection screen that can only be skipped, so buying one
+    spends money for nothing. The model bought one anyway when the description
+    came back unreadable and it guessed at what the item was."""
+
+    def test_refuses_to_buy_a_pack(self):
+        e = engine([item(100, class_name='card_pack')], [tag(120)])
+        result = e.execute_buy(0)
+        assert result['success'] is False
+        assert 'booster packs' in result['error_message']
+
+    def test_still_buys_a_joker(self):
+        e = engine([item(100, class_name='joker_card')], [tag(120)])
+        result = e.execute_buy(0)
+        # Fails later for want of a real screen, but not on the pack guard.
+        assert 'booster packs' not in result['error_message']

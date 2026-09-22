@@ -489,6 +489,12 @@ Choose one action now and explain your reasoning."""
                 'not wired up yet, so leave with '
                 "click_button(button_type='next')."
             ),
+            'pack_opening': (
+                "You opened a booster pack. The cards shown are the pack's "
+                'contents, not your hand, so they cannot be played.\n'
+                'Choosing from a pack is not supported yet, so move on with '
+                "click_button(button_type='skip')."
+            ),
             'unknown': (
                 'This is not a screen you can play cards on, and it may still '
                 'be animating.\nUse click_button with whichever button listed '

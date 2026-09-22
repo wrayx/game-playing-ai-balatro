@@ -212,10 +212,16 @@ class GameStateExtractionService:
         The other screens are identified by a button that appears only there,
         matched on the exact class rather than a substring.
         """
+        classes = {btn['class_name'].lower() for btn in buttons}
+
+        # Checked before the hand, because an opened booster pack shows cards
+        # to choose from that look exactly like a hand. Its Skip button is the
+        # only thing that distinguishes the two.
+        if 'button_card_pack_skip' in classes:
+            return 'pack_opening'
+
         if hand_cards:
             return 'playing'
-
-        classes = {btn['class_name'].lower() for btn in buttons}
 
         if 'button_cash_out' in classes:
             return 'blind_won'

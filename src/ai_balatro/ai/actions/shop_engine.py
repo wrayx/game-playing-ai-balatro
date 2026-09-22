@@ -150,6 +150,19 @@ class ShopActionEngine:
             return result
 
         item, _tag = items[index]
+
+        # Opening a pack leads to a selection screen that can only be skipped,
+        # so buying one spends money for nothing. The prompt asks the model to
+        # avoid them, and it bought one anyway when the description came back
+        # unreadable and it guessed at what the item was.
+        if entities.is_pack(item):
+            result['error_message'] = (
+                f'Refusing to buy item {index}: booster packs open a selection '
+                f'screen that is not supported, so the purchase would be wasted'
+            )
+            logger.error(result['error_message'])
+            return result
+
         cash_before = self.read_cash(frame)
         logger.info(
             f'Buying shop item {index} ({item.class_name}) - {description}; '

@@ -66,3 +66,25 @@ def test_sort_button_alone_is_not_playing():
 
 def test_unrecognised_screen():
     assert service()._infer_game_phase(buttons('button_options'), []) == 'unknown'
+
+
+def test_an_opened_pack_is_not_the_playing_phase():
+    """A booster pack shows cards to choose from that look exactly like a hand.
+
+    Read as 'playing', the agent was told to play them and the executor refused
+    a selection it could never make.
+    """
+    phase = service()._infer_game_phase(
+        buttons('button_card_pack_skip', 'button_options'), [card(), card()]
+    )
+    assert phase == 'pack_opening'
+
+
+def test_a_blind_skip_is_not_a_pack():
+    """button_level_skip also maps to 'skip', so match the exact class."""
+    assert (
+        service()._infer_game_phase(
+            buttons('button_level_skip', 'button_level_select'), []
+        )
+        == 'blind_select'
+    )

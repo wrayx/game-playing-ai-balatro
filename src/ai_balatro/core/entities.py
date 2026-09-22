@@ -76,6 +76,11 @@ def is_pile(detection: Detection) -> bool:
     return _name(detection) in PILE_CLASSES
 
 
+def is_pack(detection: Detection) -> bool:
+    """Check whether a detection is a booster pack."""
+    return _name(detection) in PACK_CLASSES
+
+
 def is_describable(detection: Detection) -> bool:
     """Check whether hovering a detection is expected to raise a tooltip."""
     return _name(detection) in DESCRIBABLE_CLASSES
