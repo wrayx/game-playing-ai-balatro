@@ -1,178 +1,96 @@
-# Balatro Game Playing AI - Development Guidelines
+# CLAUDE.md
 
-## Project Overview
-Building a Balatro game playing AI using modern Python tooling and best practices. This project leverages computer vision (YOLO object detection) to understand game state and implements AI decision-making for optimal gameplay.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-### Why This Tech Stack?
-- **Pixi**: Modern package manager that combines conda/mamba with uv, providing better dependency resolution and faster installs
-- **YOLO**: State-of-the-art real-time object detection, perfect for identifying game entities
-- **ONNX**: Cross-platform inference format for deploying models efficiently across different hardware
-- **Git LFS + Submodules**: Efficient handling of large model files while maintaining version control
+## What this is
 
-## Package Management (Pixi)
-This project uses **pixi** (conda/mamba alternative written in Rust with uv integration) for dependency management.
+A Balatro-playing AI: screen capture → two YOLO11n detectors (entities + UI) → OCR enrichment → LLM reasoning (OpenRouter function calling) → mouse/keyboard automation against the live game window. Nothing is read from game memory or mods; everything is pixels.
 
-### Python Execution
+`AGENTS.md` and `.cursorrules` carry a near-duplicate of this guidance for other tools — update them together with this file when conventions change.
+
+## Commands
+
+Pixi config lives in `pyproject.toml` under `[tool.pixi.*]` — there is **no `pixi.toml`**.
+
 ```bash
-pixi run python <script_name.py|.sh>
+pixi install                         # create env from pyproject.toml + pixi.lock
+pixi run dev                         # = python cli/run-ai-balatro.py (interactive detection demo)
+pixi run test                        # = pytest tests/ -v
+pixi run style                       # fmt + ruff-check + lint   <- what CI runs
+pixi run quality                     # style + test
+pixi run fmt / lint / ruff-check     # ruff format . / ruff check . / ruff check . --fix
+pixi run start-benchmark             # OCR engine benchmark on sample dataset images
 ```
 
-### Adding Dependencies
-- **Pip packages**: `pixi add --pypi <package_name>`
-  - Use for Python-only packages from PyPI
-- **C++/CUDA packages**: `pixi add <package_name>`
-  - Use for system-level dependencies and compiled libraries
-- **Platform-specific CUDA** (for Linux/Windows, since macOS uses MPS/CoreML):
-  ```bash
-  pixi add cuda --platform win-64 --platform linux-64
-  ```
-  - **Why platform-specific?** macOS doesn't support CUDA, so we exclude it to avoid conflicts
-  - **Alternative on macOS**: Uses Metal Performance Shaders (MPS) and CoreML for GPU acceleration
+Single test / subset:
 
-## Development Standards
-
-### Model Implementation
-- Use **transformers** and **onnxruntime** for inference
-  - **PyTorch models**: Best for CUDA/MPS workflows (high-performance GPU inference)
-  - **ONNX models**: Best for WebGPU, AMD GPU, Intel GPU, Intel CPU, broad hardware compatibility
-  - **Focus**: Prioritize CUDA/MPS workflow for optimal performance
-- **Device Management**: Always implement proper device detection and setup
-  - **Universal utility**: Create device detection function with assertions
-  - **CUDA support**: Automatic CUDA detection with fallback
-  - **MPS support**: Apple Silicon optimization (Metal Performance Shaders)
-  - **CoreML**: Use Apple's CoreML libraries for FastVLM models (Apple-optimized)
-- Create dedicated test sub-modules with **pytest** capability
-- Implement minimal approaches first, then expand
-- Wrap implementations in well-defined classes and abstract classes
-
-### Code Structure
-- Maintain clean project architecture
-- Use abstract base classes for interface definitions
-- Create modular, testable components
-- No rushing - prioritize engineering best practices
-
-### Testing
-- All model implementations must include pytest-capable test scripts
-- Test minimal approaches before expanding functionality
-- Ensure reproducible testing environments
-
-### Platform Considerations & Device Management
-- **macOS**: Use MPS (Metal Performance Shaders) for PyTorch, CoreML for FastVLM
-- **Linux/Windows**: CUDA support for high-performance GPU inference
-- **Device Detection Strategy**:
-  - Implement universal device utility function with proper assertions
-  - Auto-detect: CUDA → MPS → CPU (in order of preference)
-  - Explicit device specification with validation
-- **Maximum Compatibility**: Support all device types with appropriate fallbacks
-
-## Project Structure & Assets
-
-### Project Organization
-- `src/agent/` — main agent implementation (AI, OCR, services, UI, utils)
-- `src/clis/` — command-line utilities and tools
-- `src/train/` — training/prototyping code
-- `configs/` — YOLO/dataset configs (e.g., `configs/**/dataset.yaml`)
-- `models/`, `data/` — model artifacts and datasets (via submodules/LFS)
-- `notebooks/` — Jupyter notebooks for experiments and benchmarks
-- `docs/` — design notes and guides
-- `test/` — test data and fixtures
-- `runs/` — training run outputs and metrics
-
-### HuggingFace Integration
-- **Models**: Published to HuggingFace under `proj-airi/games-balatro-2024-yolo-entities-detection`
-- **Datasets**: Published to HuggingFace under `proj-airi/games-balatro-2024-entities-detection`
-- **Git LFS**: HuggingFace repos use Git LFS, integrated as submodules
-
-### Available Models
-- **PyTorch**: `models/games-balatro-2024-yolo-entities-detection/model.pt`
-- **ONNX**: `models/games-balatro-2024-yolo-entities-detection/onnx/model.onnx`
-
-### Test Data
-- **Training images**: `data/datasets/games-balatro-2024-entities-detection/data/train/yolo/images/`
-- **Test fixtures**: `test/testdata/` (image-1.png, image-2.png, etc.)
-- **Example**: `out_00001.jpg` (many more available)
-
-### Development Setup
 ```bash
-git clone git@github.com:proj-airi/game-playing-ai-balatro.git
-git lfs install                # Required for large model files from HuggingFace
-git submodule init            # Initialize submodule tracking
-git submodule update          # Download HuggingFace model/dataset repos
-pixi install                 # Install all dependencies via pixi
+pixi run pytest tests/test_action_module.py -v
+pixi run pytest tests/test_ocr_engines.py::test_ocr_engine_smoke -v
+pixi run pytest tests/unit -v            # pure-logic tests, no models or game needed
+pixi run pytest tests/integration -v     # agent framework; some tests skip without OPENROUTER_API_KEY
 ```
 
-**Why this workflow?**
-- **Git LFS**: HuggingFace repositories contain large model files (hundreds of MB) that need LFS
-- **Submodules**: Models and datasets are separate HuggingFace repos, integrated as submodules for version control
-- **Pixi install**: Ensures reproducible environment across all team members
+Anything not wrapped in a task: `pixi run python <script>`, or `pixi shell` first for CLIs (`yolo`, `huggingface-cli`).
+Add deps with `pixi add --pypi <pkg>` (PyPI) or `pixi add <pkg>` (conda/system/CUDA); CUDA entries are per-platform (`--platform win-64 --platform linux-64`) because macOS uses MPS.
 
-## Pixi Environment Management
+CI (`.github/workflows/ci.yml`) only runs `pixi run style` — the test job is commented out, so tests are on you locally.
 
-### Shell Access
-- **Interactive shell**: `pixi shell` (required for direct `python <script>` calls or pip-installed CLIs)
-  - **When to use**: Interactive development, using CLI tools like `huggingface-cli`, `yolo`
-  - **Why needed**: Activates the pixi environment so tools are in PATH
-- **Direct execution**: `pixi run python <script>` (works without shell)
-  - **When to use**: Running specific scripts, automated workflows
-  - **Advantage**: No need to activate environment, cleaner for CI/CD
+## Before anything will run
 
-## Development Best Practices
+`models/` and `data/datasets/` are **git submodules pointing at HuggingFace repos** and are empty on a fresh clone. Without them `MultiYOLODetector` logs "model not found" and silently returns zero detections.
 
-### Computer Vision & Debugging
-- **Image preservation**: Always save/record intermediate images for debugging
-  - **Why critical**: CV bugs are often visual - seeing processed images reveals issues instantly
-  - **What to save**: Original images, preprocessed images, detection overlays, cropped regions
-- **Visual debugging**: Preserve bounding boxes and processing steps
-  - **Best practice**: Save images with drawn bounding boxes, confidence scores, class labels
-- **Notebook development**: Use `.ipynb` for CV work - better image visualization than terminals
-  - **Advantage**: Inline image display, interactive exploration, step-by-step debugging
-  - **When to use**: Prototyping, data exploration, model validation, debugging complex pipelines
-- **Progressive development**: Notebooks ideal for REPL-style CV development
-  - **Workflow**: Develop in notebooks → Extract to modules → Add tests → Integrate
+```bash
+git lfs install
+git submodule update --init      # 3 model repos + 2 dataset repos
+```
 
-### Commands Reference
-- **Run Python scripts**: `pixi run python <script>`
-- **Add pip package**: `pixi add --pypi <package>`
-- **Add system package**: `pixi add <package>`
-- **Run tests**: `pixi run test` (runs `pytest tests/ -v`)
-- **App/integration tests**: `pixi run pytest src/agent/tests -v`
-- **Enter shell**: `pixi shell`
-- **Lint/format**: `pixi run fmt`, `pixi run ruff-check`, `pixi run lint`
-- **Quality gate**: `pixi run style` or `pixi run quality`
+Runtime prerequisites beyond that: the Balatro game running and visible, macOS permissions (Screen Recording + Accessibility + Automation for the terminal/IDE — see README, restart the app after granting), and `OPENROUTER_API_KEY` for any LLM path. OCR backends (RapidOCR/PaddleOCR/EasyOCR) download their own weights on first use; Tesseract comes from pixi.
 
-## Documentation Standards
+## Architecture
 
-### Design Documents & Plans
-- **Location**: `docs/ai/designs/`
-- **Naming Convention**: `YYYY-MM-DD-kebab-case-description.md`
-- **Frontmatter Required**: All design docs must include YAML frontmatter with metadata
-- **Metadata Structure**:
-  ```yaml
-  ---
-  title: "Document Title"
-  date: "YYYY-MM-DD"
-  coding_agents:
-    authors: ["Author 1", "Author 2", "Claude Code"]
-    project: "proj-airi/game-playing-ai-balatro"
-    context: "Brief description of context"
-    technologies: ["tech1", "tech2"]
-  tags: ["tag1", "tag2"]
-  ---
-  ```
-- **EDIT history**: Maintain a changelog at the bottom of each doc for updates when huge changes occur
+The pipeline is layered, and each layer is usable standalone — that matters because the lower layers work offline while the upper ones need the live game.
 
-### Documentation Rules
-- **Essential Context**: Include project background, technical constraints, and decision rationale
-- **Living Documents**: Update status and content as implementation progresses
-- **Collaborative Attribution**: Always include human collaborators and Claude Code in authors
-- **Technology Stack**: List all relevant technologies in frontmatter for searchability
+**Capture** — `core/screen_capture.py`. `mss` grabs frames; `_detect_balatro_window()` scores visible windows by title keyword and excludes IDE/browser windows (`config.yaml: screen_capture.excluded_apps`) so it doesn't lock onto your editor.
 
-## Engineering Principles
-1. **Quality over speed** - No rushing, focus on solid engineering
-2. **Modular design** - Well-defined interfaces and abstractions
-3. **Test-driven** - Every component should be testable
-4. **Cross-platform** - Consider different inference backends
-5. **Maintainable** - Clean code structure and documentation
-6. **Visual debugging** - Preserve intermediate images for CV tasks
-7. **Progressive development** - Use notebooks for exploratory CV work
-8. **Documentation-driven** - Comprehensive design docs before implementation
+**Detection** — `core/multi_yolo_detector.py` wraps two `YOLODetector` instances:
+- `entities` — cards, jokers, packs, tooltips (10 classes, `configs/v2-balatro-entities/dataset.yaml`)
+- `ui` — buttons and numeric readouts (33 classes, `configs/v1-balatro-ui/dataset.yaml`)
+
+Class names are read from the dataset submodules' `classes.txt`, not from the configs; the `configs/**/dataset.yaml` files exist for training and mirror those lists. `MultiYOLODetector` resolves model paths from the repo root via `utils/path_utils.resolve_path` and ignores `config/config.yaml`. `config.yaml` + `config/settings.py` only drive the older single-model path (`DetectionService` → `ui/demo_app.py`, what `pixi run dev` uses).
+
+**State extraction** — `services/game_state_extraction.py` is the fast path that produces the dict the LLM sees. It batches: YOLO both models on one frame, OCR the dynamic UI boxes (`services/ui_text_service.py`, RapidOCR over `DYNAMIC_UI_CLASSES` — cash, hands/discards left, ante, round, chips, mult, target score), then optionally sweeps the hand with the mouse so each card's tooltip renders and can be OCR'd (`services/card_tooltip_service.py`, matched back to the card by geometry). Game phase is inferred from which buttons are visible.
+
+**Reasoning** — `ai/` is a four-tier abstraction: `engines/` (transport) → `providers/` (`BaseProvider`/`LLMProvider`/`VLMProvider`, concrete: `providers/openrouter.py`) → `agents/` (`BaseAgent` + `AgentOrchestrator`, concrete: `agents/balatro_agent.py`) with `memory/conversation.py` and `templates/prompt_template.py` alongside. The agent emits OpenAI-style function calls defined in `ai/actions/schemas.py::GAME_ACTIONS`.
+
+**Action** — `ai/actions/executor.py` (`ActionExecutor.process()`) dispatches those function calls to `card_action_engine.py` (hand detection, left-to-right index ordering, click sequences), `button_detector.py` (maps UI-model class names → button types via `button_class_map`), and `mouse_controller.py` (eased multi-step mouse movement — instant warps don't register in Balatro; plus window focus via AppleScript on macOS).
+
+**Card classification is centralised in `core/entities.py`** and must stay that way. Every entities-model class name contains the substring `card` — including `joker_card` — so any local substring filter folds jokers, consumables, tooltips and the deck pile into the hand. Measured over 40 dataset frames before the fix: the LLM was shown 110 phantom hand cards, every hand was inflated (told 13 when holding 8), and all 29 joker detections were misfiled, leaving the jokers list permanently empty. The old executor also accepted jokers and consumables as playable, so a selected index could click one. Index misalignment between the prompt and executor was total whenever a tooltip was raised: verified live on a Small Blind hand, 8 of 8 hand cards were misindexed in all 105 captured frames. One visible tooltip fires two detections (`card_description` and `poker_card_description`) and both sort ahead of the leftmost card, shifting the hand by two. The LLM saw its pair of Aces at indices 1 and 3, and those executor indices were A♦ and Q♠ — Ace-high instead of a pair, one hand burned. This was the normal operating state, since `hover_before_action=True` raises tooltips before every decision. Static dataset frames show only 2 of 40 misaligned and are misleading here: training captures have no hover sweep running, so a tooltip never co-occurs with a hand in them. Measure this live, not on the dataset. The prompt builder (`_build_base_state`), the click path (`CardPositionDetector`) and the tooltip matcher all derive their sets from that module. Do not re-filter on class name locally; add to the taxonomy instead. `cli/diagnose-entity-classes.py` re-measures all of this.
+
+Two ways to address cards coexist: the LLM-facing **index** API (`play_cards(indices=[0,1,2])`) and the internal **position array** (`[1,1,1,0]` play / `[-1,-1,0,0]` discard, mixed signs rejected). `CardAction.from_array` is the bridge. `src/ai_balatro/ai/actions/README.md` documents this module in depth (in Chinese).
+
+**Side pipelines** — `ocr/` (engine wrappers + `llm_judge.py` + metrics, feeding the benchmark CLI and `docs/ai/findings/`) and `datasets/` (card-corner crop export, CNN rank/suit classifier, Label Studio import) with matching `cli/` scripts.
+
+### Current gameplay coverage
+
+The action layer implements play / discard / hover / click-button only. There is **no shop, purchase, sell, reroll, or blind-selection logic** — the UI model detects those buttons (`button_purchase`, `button_sell`, `button_store_reroll`, `button_cash_out`, `button_level_select`…) and `click_button` can reach some of them, but no agent reasoning drives them. Money (`ui_data_cash`) is OCR'd and dumped into the prompt as raw UI text; nothing spends it. Jokers are detected as a bare `joker_card` class with no name or effect text, so they reach the prompt as `Joker: joker_card (confidence: …)` and inform nothing. There is no concept of stake or deck anywhere in the codebase — run setup is manual and the agent never adapts to difficulty. Practically: the agent plays the hand phase of a blind and nothing else.
+
+Known breakage in `click_button` (verified, still open): the enum advertises `sort_hand_rank`/`sort_hand_suits` but `BUTTON_CONFIG` keys them as `button_sort_hand_*`, so those calls are rejected; `shop`'s `'store'` keyword substring-matches `button_store_next_round`/`button_store_reroll` (there is no shop-entry class), so it clicks the wrong button; `play` likewise matches `button_main_menu_play`/`button_new_run_play` with no confidence sort. `GameState` in `ai/llm/base.py` is vestigial — nothing constructs it.
+
+## Conventions
+
+**Imports.** The package is `src/ai_balatro/` (import root is `src/`, `ai_balatro_train/` sits beside it). There is no editable install — every entry point under `cli/` and `examples/` prepends `src/` to `sys.path` before importing, and `tests/__init__.py` does the same. Keep that shim when adding an entry point. Tests use both `from ai_balatro...` and `from src.ai_balatro...`; match the file you're editing.
+
+**Style.** ruff, line length 88, **single quotes**, 4-space indent (`ruff.toml`). `E402` is ignored precisely because of the sys.path shims. Type hints on public functions; keep modules small.
+
+**Language.** The codebase mixes English and Chinese in log messages, docstrings, and error strings (heavily so in `ai/actions/`). Follow the surrounding file rather than normalizing.
+
+**Commits.** Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`, `style:`).
+
+## CV debugging
+
+Save intermediate images — annotated frames, crops, tooltip matches — whenever touching detection or OCR; these bugs are visual and invisible in logs. `CardTooltipService` has `save_debug_images`, `ActionExecutor.execute_from_array(..., show_visualization=True)` previews the click plan before acting. Prototype in `notebooks/` (inline image display), then extract to modules and add tests.
+
+## Design docs
+
+`docs/ai/designs/YYYY-MM-DD-kebab-case-description.md`, YAML frontmatter with `title`, `date`, `coding_agents` (`authors` including human collaborators and Claude Code, `project`, `context`, `technologies`), `tags`. Append an EDIT changelog at the bottom for significant revisions. Benchmark write-ups go in `docs/ai/findings/`.
