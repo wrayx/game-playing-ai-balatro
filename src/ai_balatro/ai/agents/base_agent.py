@@ -314,7 +314,7 @@ class BaseAgent(ABC):
 
                 return AgentResult(
                     success=True,
-                    action=function_calls[0] if use_functions else None,
+                    action=function_calls[0] if function_calls else None,
                     reasoning=content,
                     metadata=result.metadata,
                 )
