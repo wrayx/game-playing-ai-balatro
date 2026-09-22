@@ -131,3 +131,15 @@ def test_settles_after_enough_consecutive_matches():
     steady = [[card(100), card(200)]]
     e = engine(steady, [[button('button_play')]])
     assert e._wait_until_settled(timeout=3.0, interval=0.01) is True
+
+
+def test_does_not_conclude_before_the_minimum_wait():
+    """Balatro animates in stages with pauses, so a perfectly still board can
+    still be mid-transition. Observed settling at '8 cards, 2 buttons' while
+    the Cash Out panel had yet to appear."""
+    import time
+
+    e = engine([[card(100), card(200)]], [[button('button_play')]])
+    started = time.time()
+    assert e._wait_until_settled(timeout=4.0, interval=0.01) is True
+    assert time.time() - started >= min(CardActionEngine.MIN_SETTLE_SECONDS, 4.0 / 2)

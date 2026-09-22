@@ -637,6 +637,13 @@ class CardActionEngine:
     #: finished rendering rather than that it is ready.
     PERSISTENT_BUTTONS = frozenset({'button_options', 'button_run_info'})
 
+    #: The earliest an action may be called finished. Balatro's animations run
+    #: in stages with pauses between them, so the board can hold still -- same
+    #: hand, same buttons, same score -- and then change again. Observed after
+    #: a blind-winning hand: settled at "8 cards, 2 buttons" while the Cash Out
+    #: panel had not appeared and the score went on climbing 1049 to 1078.
+    MIN_SETTLE_SECONDS = 2.0
+
     #: Consecutive matching samples required before calling the board settled.
     #: Two was not enough: while a hand is scoring, the cards left behind sit
     #: still long enough to match twice, so the board looked ready while the
@@ -707,7 +714,11 @@ class CardActionEngine:
         for longer, so a score read immediately afterwards can still be
         mid-count.
         """
-        deadline = time.time() + (timeout or self.SETTLE_TIMEOUT)
+        started = time.time()
+        deadline = started + (timeout or self.SETTLE_TIMEOUT)
+        earliest = started + min(
+            self.MIN_SETTLE_SECONDS, (timeout or self.SETTLE_TIMEOUT) / 2
+        )
         previous: Optional[tuple] = None
         matches = 0
 
@@ -721,7 +732,11 @@ class CardActionEngine:
                 matches = matches + 1 if signature == previous else 0
                 previous = signature
 
-                if actionable and matches >= self.STABLE_SAMPLES - 1:
+                if (
+                    actionable
+                    and matches >= self.STABLE_SAMPLES - 1
+                    and time.time() >= earliest
+                ):
                     logger.info(
                         f'Board settled: {hand_count} cards in hand, '
                         f'{len(buttons)} buttons'
