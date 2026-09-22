@@ -52,6 +52,31 @@ class ShopActionEngine:
         )
         return [(item, tag) for item, tag in priced if tag is not None]
 
+    #: Where the Next Round button sits, as a fraction of the game window.
+    #: Only used when the UI model fails to detect it, which it does in some
+    #: shop states -- measured on two otherwise similar frames with the cursor
+    #: clear of any item, the button was found at 0.99 confidence with $7 in
+    #: hand and not at all at any threshold with $1, when Reroll is greyed out.
+    #: A hardcoded position is a poor substitute for detection; the real fix is
+    #: labelled shop frames covering that state.
+    NEXT_ROUND_FALLBACK = (0.356, 0.448)
+
+    def next_round_fallback_position(self) -> Optional[Tuple[int, int]]:
+        """Screen position of the Next Round button from the shop's layout."""
+        region = self.screen_capture.get_capture_region()
+        if not region:
+            return None
+
+        x_fraction, y_fraction = self.NEXT_ROUND_FALLBACK
+        return (
+            int(region['left'] + region['width'] * x_fraction),
+            int(region['top'] + region['height'] * y_fraction),
+        )
+
+    def looks_like_shop(self, frame: np.ndarray) -> bool:
+        """Whether this frame is a shop, judged by something being for sale."""
+        return bool(self.shop_items(frame))
+
     def read_cash(self, frame: np.ndarray) -> Optional[int]:
         """Current money, or None when it cannot be read.
 

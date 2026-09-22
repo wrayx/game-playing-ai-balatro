@@ -327,6 +327,29 @@ class ActionExecutor(BaseProcessor):
             candidates.sort(key=lambda d: d.confidence, reverse=True)
             target_button = candidates[0] if candidates else None
 
+            if target_button is None and button_type == 'next' and self.shop_engine:
+                # The UI model misses the shop's Next Round button in some
+                # states, which strands the agent in the shop with no way out.
+                # Fall back to where the shop lays it out.
+                if self.shop_engine.looks_like_shop(frame):
+                    position = self.shop_engine.next_round_fallback_position()
+                    if position:
+                        logger.warning(
+                            'Next Round not detected; clicking its layout '
+                            f'position {position} instead'
+                        )
+                        if self.card_engine.mouse_controller.click_at(*position):
+                            return ProcessingResult(
+                                success=True,
+                                data={
+                                    'action': 'click_button',
+                                    'button_type': button_type,
+                                    'executed': True,
+                                    'used_fallback_position': True,
+                                },
+                                errors=[],
+                            )
+
             if target_button is None:
                 return ProcessingResult(
                     success=False,

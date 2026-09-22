@@ -122,3 +122,19 @@ class TestButtonAlignment:
             )
             is False
         )
+
+
+class TestNextRoundFallback:
+    """The UI model misses the shop's Next Round button in some states, which
+    would otherwise strand the agent in the shop after any purchase that
+    leaves it short of the reroll price."""
+
+    def test_position_is_inside_the_window(self):
+        e = engine([], [])
+        x, y = e.next_round_fallback_position()
+        assert 0 < x < 932
+        assert 0 < y < 602
+
+    def test_looks_like_shop_needs_something_for_sale(self):
+        assert engine([item(100)], [tag(120)]).looks_like_shop(FRAME) is True
+        assert engine([item(100)], []).looks_like_shop(FRAME) is False
