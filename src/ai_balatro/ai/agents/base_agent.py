@@ -303,11 +303,18 @@ class BaseAgent(ABC):
                 if content:
                     conversation.add_assistant_message(content)
 
+                # An empty list is not the same as a missing key: the model
+                # can answer in prose without calling a tool, and indexing [0]
+                # of [] raised IndexError, failing the whole cycle.
+                function_calls = result.data.get('function_calls') or []
+                if use_functions and not function_calls:
+                    logger.warning(
+                        '   LLM returned no function call; no action this cycle'
+                    )
+
                 return AgentResult(
                     success=True,
-                    action=result.data.get('function_calls', [{}])[0]
-                    if use_functions
-                    else None,
+                    action=function_calls[0] if use_functions else None,
                     reasoning=content,
                     metadata=result.metadata,
                 )
