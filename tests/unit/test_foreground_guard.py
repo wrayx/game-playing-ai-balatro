@@ -66,3 +66,17 @@ class TestCursorParking:
 
     def test_no_capture_region_is_not_an_error(self):
         assert self._controller(None).park_cursor() is False
+
+
+def test_park_position_clears_the_owned_joker_row():
+    """The jokers you own sit across the top-centre of the window.
+
+    Parking there hovered one, and its tooltip covered the Cash Out button, so
+    the agent could not read the screen it had to act on. Verified live: with
+    the cursor on the joker row only Options and Run Info were detected; moved
+    off it, Cash Out appeared.
+    """
+    x_fraction, y_fraction = MouseController.PARK_POSITION
+    assert y_fraction > 0.25 or x_fraction > 0.75, (
+        'park position must avoid the joker row across the top-centre'
+    )
