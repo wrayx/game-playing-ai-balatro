@@ -302,6 +302,71 @@ Make immediate, optimal decisions based on the complete card information provide
             'ui_text_values': {},
         }
 
+    def _ui_value(self, game_state: Dict[str, Any], class_name: str) -> str:
+        """One OCR'd UI readout by class name, or '' when it was not read."""
+        for entry in game_state.get('ui_text_elements', []):
+            if entry.get('class_name') == class_name:
+                return str(entry.get('text', '')).strip()
+        return ''
+
+    def _create_shop_section(self, game_state: Dict[str, Any]) -> str:
+        """Prompt for the shop screen.
+
+        The shop is where a run is won or lost: an agent that never buys has no
+        jokers and no scaling, and stalls around ante 2 no matter how well it
+        plays the cards it is dealt.
+        """
+        items = game_state.get('shop_items', [])
+        cash = self._ui_value(game_state, 'ui_data_cash') or 'unknown'
+
+        lines = []
+        for entry in items:
+            text = ' '.join(str(entry.get('description_text', '')).split())
+            if len(text) > 160:
+                text = text[:160] + '...'
+            price = entry.get('price') or '?'
+            lines.append(
+                f'  Item {entry["index"]}: {entry["class_name"]} costs ${price}'
+                + (f' -> {text}' if text else ' -> (description unreadable)')
+            )
+
+        owned = []
+        for joker in game_state.get('jokers', []):
+            text = ' '.join(str(joker.get('description_text', '')).split())
+            owned.append(f'  {text[:120]}' if text else '  (unreadable joker)')
+
+        return f"""WHAT TO DO NOW:
+You are in the shop. There are no cards to play here.
+
+FOR SALE ({len(items)} items):
+{chr(10).join(lines) if lines else '  Nothing detected for sale'}
+
+You have ${cash}.
+
+Jokers you already own ({len(owned)} of 5 slots):
+{chr(10).join(owned) if owned else '  None'}
+
+Buy something with buy_item(index=N), using the item numbers above.
+Leave the shop with click_button(button_type='next').
+
+HOW TO DECIDE:
+- Jokers are where scoring comes from. A run holding no jokers stalls
+  around ante 2, because blind targets roughly triple while an unimproved
+  deck does not. Buying a decent joker early usually beats saving.
+- Money earns interest between rounds: $1 for every $5 you hold, capped at
+  $5 per round. Spending down to nothing costs future income, so leaving a
+  few dollars is worth something, but not at the cost of an empty joker
+  slot in the early antes.
+- Read the sticker lines in each description. 'Perishable' means it stops
+  working after a few rounds. 'Rental' means it drains $3 every round.
+  Both are worth much less than the same joker without them.
+- Booster packs open a selection screen this agent cannot yet handle, so
+  do not buy them. Prefer jokers, then consumables.
+- Leaving without buying is a legitimate choice when nothing is worth its
+  price, or when everything on offer is a pack.
+
+Choose one action now and explain your reasoning."""
+
     def _create_analysis_prompt(self, game_state: Dict[str, Any]) -> str:
         """Create prompt for game state analysis."""
         cards_info = []
@@ -406,6 +471,8 @@ Make immediate, optimal decisions based on the complete card information provide
             decision_section = PLAYING_DECISION_SECTION.format(
                 poker_objectives=poker_objectives
             )
+        elif phase == 'shop':
+            decision_section = self._create_shop_section(game_state)
         else:
             # Suppress the poker instructions entirely off the table. Leaving
             # them in is what led an agent to call play_cards on the Cash Out
