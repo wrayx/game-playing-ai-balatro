@@ -14,6 +14,12 @@ logger = get_logger(__name__)
 class MouseController:
     """Mouse controller for handling smooth movement, clicking, and window focus management."""
 
+    #: Pixels of slack when confirming arrival. The final step assigns the exact
+    #: target, so this only absorbs the sub-pixel drift macOS reports back on a
+    #: scaled display. Keep it below the short-move threshold in smooth_move_to,
+    #: or a blocked tiny move looks identical to a successful one.
+    MOVE_TOLERANCE = 2
+
     def __init__(self, screen_capture: Optional[ScreenCapture] = None):
         """
         Initialize mouse controller.
@@ -151,7 +157,7 @@ class MouseController:
             if total_distance < 5:  # If distance is small, move directly
                 self.mouse.position = (target_x, target_y)
                 time.sleep(0.1)
-                return True
+                return self._arrived(target_x, target_y)
 
             # Calculate step movement amount
             step_delay = self.mouse_move_duration / self.mouse_move_steps
@@ -173,13 +179,7 @@ class MouseController:
 
                 time.sleep(step_delay)
 
-            # Verify final position
-            final_x, final_y = self.mouse.position
-            logger.info(
-                f'Mouse movement complete: final position ({final_x}, {final_y})'
-            )
-
-            return True
+            return self._arrived(target_x, target_y)
 
         except Exception as e:
             logger.error(f'Smooth mouse movement failed: {e}')
@@ -187,9 +187,37 @@ class MouseController:
             try:
                 self.mouse.position = (target_x, target_y)
                 time.sleep(0.2)
-                return True
+                return self._arrived(target_x, target_y)
             except Exception:
                 return False
+
+    def _arrived(self, target_x: int, target_y: int) -> bool:
+        """Confirm the cursor actually reached the target.
+
+        pynput raises nothing when macOS denies Accessibility -- the assignment
+        is accepted and the cursor simply never moves. Without this check an
+        entire hover sweep no-ops while every step reports success, which looks
+        identical to the game not rendering tooltips.
+        """
+        try:
+            final_x, final_y = self.mouse.position
+        except Exception:  # noqa: BLE001
+            logger.warning('Could not read mouse position to confirm movement')
+            return False
+
+        if (
+            abs(final_x - target_x) <= self.MOVE_TOLERANCE
+            and abs(final_y - target_y) <= self.MOVE_TOLERANCE
+        ):
+            logger.info(f'Mouse movement complete: ({final_x}, {final_y})')
+            return True
+
+        logger.warning(
+            f'Mouse did not reach ({target_x}, {target_y}); cursor is still at '
+            f'({final_x}, {final_y}). On macOS this usually means Accessibility '
+            f'permission has not been granted to this terminal or IDE.'
+        )
+        return False
 
     def click_at(self, x: int, y: int, move_first: bool = True) -> bool:
         """
