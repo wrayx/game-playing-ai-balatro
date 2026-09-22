@@ -630,6 +630,10 @@ class CardActionEngine:
     #: How long to wait for the board to stop changing after an action.
     SETTLE_TIMEOUT = 8.0
 
+    #: On screen in every phase, so seeing only these means the screen has not
+    #: finished rendering rather than that it is ready.
+    PERSISTENT_BUTTONS = frozenset({'button_options', 'button_run_info'})
+
     def _board_signature(self, frame: np.ndarray) -> tuple:
         """What the board looks like right now, for comparing two captures.
 
@@ -672,10 +676,12 @@ class CardActionEngine:
             frame = self.screen_capture.capture_once()
             if frame is not None:
                 signature = self._board_signature(frame)
-                if signature == previous:
+                hand_count, buttons = signature
+                actionable = hand_count > 0 or bool(buttons - self.PERSISTENT_BUTTONS)
+                if signature == previous and actionable:
                     logger.info(
-                        f'Board settled: {signature[0]} cards in hand, '
-                        f'{len(signature[1])} buttons'
+                        f'Board settled: {hand_count} cards in hand, '
+                        f'{len(buttons)} buttons'
                     )
                     return True
                 previous = signature

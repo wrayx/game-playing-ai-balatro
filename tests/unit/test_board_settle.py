@@ -73,3 +73,19 @@ def test_signature_includes_both_hand_and_buttons():
     count, buttons = e._board_signature(FRAME)
     assert count == 1
     assert buttons == frozenset({'button_cash_out', 'button_options'})
+
+
+def test_does_not_settle_on_only_the_permanent_buttons():
+    """Options and Run Info are on screen in every phase. A board showing just
+    those is mid-transition -- accepting it is how an agent read the Cash Out
+    screen before Cash Out had rendered, and guessed the wrong button."""
+    persistent = [button('button_options'), button('button_run_info')]
+    e = engine([[]], [persistent, persistent, persistent])
+    assert e._wait_until_settled(timeout=0.3, interval=0.01) is False
+
+
+def test_settles_once_a_real_button_appears():
+    persistent = [button('button_options'), button('button_run_info')]
+    ready = persistent + [button('button_cash_out')]
+    e = engine([[]], [persistent, ready, ready])
+    assert e._wait_until_settled(timeout=3.0, interval=0.01) is True
