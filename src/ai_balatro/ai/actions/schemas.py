@@ -58,6 +58,88 @@ class CardAction:
         )
 
 
+# Maps a button type to the exact UI-model classes that satisfy it.
+#
+# These were keyword lists matched as substrings against class names, which
+# collided badly: 'shop' matched button_store_reroll (rerolling the shop at $5
+# a time), 'play' matched button_new_run_play (starting a new run from a menu),
+# and 'discard' matched ui_data_discards_left, the counter. Exact class names
+# cannot collide. Anything not listed here is rejected rather than guessed at.
+BUTTON_CONFIG = {
+    # In a blind
+    'play': {'classes': ['button_play'], 'description': 'Play the selected cards'},
+    'discard': {
+        'classes': ['button_discard'],
+        'description': 'Discard the selected cards',
+    },
+    'sort_hand_rank': {
+        'classes': ['button_sort_hand_rank'],
+        'description': 'Sort the hand by rank',
+    },
+    'sort_hand_suits': {
+        'classes': ['button_sort_hand_suits'],
+        'description': 'Sort the hand by suit',
+    },
+    # Advancing the run
+    'cash_out': {
+        'classes': ['button_cash_out'],
+        'description': 'Collect the reward after beating a blind',
+    },
+    'level_select': {
+        'classes': ['button_level_select'],
+        'description': 'Choose the next blind',
+    },
+    'skip': {
+        'classes': ['button_level_skip', 'button_card_pack_skip'],
+        'description': 'Skip this blind or booster pack',
+    },
+    'next': {
+        'classes': ['button_store_next_round'],
+        'description': 'Leave the shop and start the next round',
+    },
+    # Shop controls. Present so the executor can reach them once shop reasoning
+    # exists; deliberately absent from the LLM schema until then.
+    'purchase': {'classes': ['button_purchase'], 'description': 'Buy the item'},
+    'sell': {'classes': ['button_sell'], 'description': 'Sell the item'},
+    'reroll': {
+        'classes': ['button_store_reroll'],
+        'description': 'Reroll the shop stock',
+    },
+    'use': {'classes': ['button_use'], 'description': 'Use the consumable'},
+    # Menu screens. Config-only: the agent has no business pressing these, and
+    # button_main_menu_play / button_new_run_play used to resolve to 'play',
+    # so asking to play a hand could start a new run.
+    'main_menu': {'classes': ['button_main_menu'], 'description': 'Main menu'},
+    'main_menu_play': {
+        'classes': ['button_main_menu_play'],
+        'description': 'Play from the main menu',
+    },
+    'new_run': {'classes': ['button_new_run'], 'description': 'Start a new run'},
+    'new_run_play': {
+        'classes': ['button_new_run_play'],
+        'description': 'Confirm the new run',
+    },
+    # Informational
+    'run_info': {'classes': ['button_run_info'], 'description': 'Show run info'},
+    'options': {'classes': ['button_options'], 'description': 'Open options'},
+    'back': {'classes': ['button_back'], 'description': 'Go back'},
+}
+
+#: Button types the agent may request. A subset of BUTTON_CONFIG: the shop
+#: controls are reachable by code but not offered to the model, which has no
+#: reasoning for buying or selling yet.
+AGENT_BUTTON_TYPES = [
+    'play',
+    'discard',
+    'sort_hand_rank',
+    'sort_hand_suits',
+    'cash_out',
+    'level_select',
+    'skip',
+    'next',
+]
+
+
 # Function calling schemas for LLM integration
 GAME_ACTIONS = [
     {
@@ -106,15 +188,7 @@ GAME_ACTIONS = [
             'properties': {
                 'button_type': {
                     'type': 'string',
-                    'enum': [
-                        'play',
-                        'discard',
-                        'skip',
-                        'shop',
-                        'next',
-                        'sort_hand_rank',
-                        'sort_hand_suits',
-                    ],
+                    'enum': AGENT_BUTTON_TYPES,
                     'description': 'Button type to click',
                 }
             },
@@ -122,32 +196,3 @@ GAME_ACTIONS = [
         },
     },
 ]
-
-
-# Button positions and identifiers for common game buttons
-BUTTON_CONFIG = {
-    'play': {'keywords': ['play', '出牌', '确认'], 'description': '出牌按钮'},
-    'discard': {'keywords': ['discard', '弃牌', '丢弃'], 'description': '弃牌按钮'},
-    'skip': {'keywords': ['skip', '跳过', 'pass'], 'description': '跳过按钮'},
-    'shop': {'keywords': ['shop', '商店', 'store'], 'description': '商店按钮'},
-    'next': {
-        'keywords': ['next', '下一个', 'continue'],
-        'description': '继续/下一步按钮',
-    },
-    'button_sort_hand_rank': {
-        'keywords': ['sort_hand_rank', 'sort', 'rank'],
-        'description': '按牌面大小排序按钮',
-    },
-    'button_sort_hand_suits': {
-        'keywords': ['sort_hand_suits', 'sort', 'suits'],
-        'description': '按花色排序按钮',
-    },
-    'button_run_info': {
-        'keywords': ['run_info', 'info', 'information'],
-        'description': '游戏信息按钮',
-    },
-    'button_options': {
-        'keywords': ['options', 'settings', '设置'],
-        'description': '选项设置按钮',
-    },
-}

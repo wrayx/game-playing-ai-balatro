@@ -79,7 +79,9 @@ The action layer implements play / discard / hover / click-button only. There is
 
 `ButtonDetector` only treats `button_*` classes (and the legacy aliases in `button_class_map`) as clickable. It used to accept any class containing a button word, so `ui_data_discards_left` — the discards-remaining counter — was offered as a discard button and lost to the real one by 0.011 confidence during a live discard; had it won, the action would have clicked a number and reported success.
 
-Known breakage in `executor._execute_click_button` (verified, still open): the enum advertises `sort_hand_rank`/`sort_hand_suits` but `BUTTON_CONFIG` keys them as `button_sort_hand_*`, so those calls are rejected; `shop`'s `'store'` keyword substring-matches `button_store_next_round`/`button_store_reroll` (there is no shop-entry class), so it clicks the wrong button; `play` likewise matches `button_main_menu_play`/`button_new_run_play` with no confidence sort. `GameState` in `ai/llm/base.py` is vestigial — nothing constructs it.
+`click_button` resolves a requested type through `BUTTON_CONFIG`, which maps each type to **exact** UI-model class names. It used to match keywords as substrings, which collided: `shop` hit `button_store_reroll` (a $5 reroll), `play` hit `button_main_menu_play` (starting a new run), and `discard` hit the `ui_data_discards_left` counter. `shop` is gone entirely — Balatro has no shop-entry button, the shop just appears. `ButtonDetector.button_class_map` is derived from the same table rather than hand-maintained; the old copy keyed the sort buttons differently from the config, so those calls always failed. `AGENT_BUTTON_TYPES` is the subset offered to the model: the shop and menu controls exist in the config so code can reach them, but are withheld until there is reasoning behind them.
+
+`GameState` in `ai/llm/base.py` is vestigial — nothing constructs it.
 
 ## Conventions
 

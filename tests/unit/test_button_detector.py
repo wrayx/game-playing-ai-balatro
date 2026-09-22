@@ -44,6 +44,13 @@ def test_readouts_are_not_buttons(class_name):
     assert ButtonDetector()._is_button(det(class_name)) is False
 
 
-def test_legacy_aliases_still_recognised():
-    """button_class_map carries older names that do not use the prefix."""
-    assert ButtonDetector()._is_button(det('play_button')) is True
+@pytest.mark.parametrize('class_name', ['play_button', 'discard_button', 'shop_button'])
+def test_invented_alias_names_are_not_buttons(class_name):
+    """The UI model emits 'button_play', never 'play_button'.
+
+    A hand-maintained alias table used to accept both. It carried its own
+    naming scheme, drifted from BUTTON_CONFIG, and was the route by which
+    button_main_menu_play resolved to 'play'. The map is now derived from the
+    config, so only real class names resolve.
+    """
+    assert ButtonDetector()._is_button(det(class_name)) is False

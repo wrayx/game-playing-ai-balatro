@@ -23,35 +23,15 @@ class ButtonDetector:
         """
         self.multi_detector = multi_detector
 
-        # Button type mapping table, from UI model detection class names to standard button types
+        # Derived from BUTTON_CONFIG so there is one source of truth. The
+        # hand-maintained copy had drifted: it mapped button_sort_hand_rank to
+        # 'sort_rank' where the config says 'sort_hand_rank', and mapped both
+        # button_main_menu_play and button_new_run_play to 'play', so looking
+        # for the play button could find a menu button instead.
         self.button_class_map = {
-            # Standard button class names from UI model
-            'button_play': 'play',
-            'button_discard': 'discard',
-            'button_back': 'back',
-            'button_card_pack_skip': 'skip',
-            'button_cash_out': 'cash_out',
-            'button_level_select': 'level_select',
-            'button_level_skip': 'skip',
-            'button_main_menu': 'main_menu',
-            'button_main_menu_play': 'play',
-            'button_new_run': 'new_run',
-            'button_new_run_play': 'play',
-            'button_options': 'options',
-            'button_purchase': 'purchase',
-            'button_run_info': 'info',
-            'button_sell': 'sell',
-            'button_sort_hand_rank': 'sort_rank',
-            'button_sort_hand_suits': 'sort_suits',
-            'button_store_next_round': 'next',
-            'button_store_reroll': 'reroll',
-            'button_use': 'use',
-            # Backup mappings (compatibility)
-            'play_button': 'play',
-            'discard_button': 'discard',
-            'skip_button': 'skip',
-            'shop_button': 'shop',
-            'next_button': 'next',
+            class_name.lower(): button_type
+            for button_type, config in BUTTON_CONFIG.items()
+            for class_name in config['classes']
         }
 
     def find_buttons(
@@ -177,10 +157,9 @@ class ButtonDetector:
         if class_name in self.button_class_map:
             return self.button_class_map[class_name]
 
-        # Keyword matching
+        # Exact class match against the shared button table
         for button_type, config in BUTTON_CONFIG.items():
-            keywords = [kw.lower() for kw in config['keywords']]
-            if any(keyword in class_name for keyword in keywords):
+            if class_name in {c.lower() for c in config['classes']}:
                 return button_type
 
         # Default return generic button type

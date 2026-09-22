@@ -263,7 +263,7 @@ class ActionExecutor(BaseProcessor):
 
             # Find the button using the button detector
             button_config = BUTTON_CONFIG[button_type]
-            keywords = button_config['keywords']
+            wanted_classes = {c.lower() for c in button_config['classes']}
 
             # Detect UI elements
             if self.multi_detector:
@@ -273,13 +273,14 @@ class ActionExecutor(BaseProcessor):
                 logger.warning('使用单一检测器作为后备方案')
                 ui_detections = []
 
-            # Look for button by matching keywords in class names
-            target_button = None
-            for detection in ui_detections:
-                class_name_lower = detection.class_name.lower()
-                if any(keyword.lower() in class_name_lower for keyword in keywords):
-                    target_button = detection
-                    break
+            # Match the exact class, highest confidence first. Substring
+            # matching used to pick whichever candidate happened to come first
+            # in detection order, including readouts and unrelated buttons.
+            candidates = [
+                d for d in ui_detections if d.class_name.lower() in wanted_classes
+            ]
+            candidates.sort(key=lambda d: d.confidence, reverse=True)
+            target_button = candidates[0] if candidates else None
 
             if target_button is None:
                 return ProcessingResult(
