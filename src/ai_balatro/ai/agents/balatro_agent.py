@@ -350,11 +350,14 @@ In Texas Hold'em, the poker hand rankings from highest to lowest are:
 9. One Pair (e.g. two Aces)
 10. High Card (e.g. the highest card in hand)
 
-It's the same in Balatro, but instead of gaming with other opponents, you are playing against the game system to achieve the highest score possible.
-The total play card stack is default to 52 without joker cards, you may purchase more playing cards later on the progressing the game.
-During the play, you can play cards or discard cards to optimize your hand, once played, new numbers of cards you played will be drawn from the card stack to refill your hand to the maximum hand size (default to 5 cards).
-When discarding cards, you will not be able to draw new cards to refill your hand too.
-Your goal is to maximize your score by forming the best possible poker hands using the cards in your hand, while strategically managing joker cards that can modify game rules.
+It's the same in Balatro, but instead of gaming with other opponents, you are playing against a score target set by the current blind.
+The deck holds 52 playing cards by default; you may add or modify cards as the run progresses.
+You hold a hand of 8 cards by default and may select at most 5 of them for any single action.
+Playing cards scores them and then draws replacements back up to your hand size.
+Discarding cards also draws replacements back up to your hand size - that is what discards are for, they let you dig for a better hand at no score cost.
+Each blind gives you a limited number of hands and discards (4 and 3 by default). Spending your last hand without reaching the target ends the run.
+Scoring is not simply the rank of your hand: the hand type contributes base chips and a multiplier that grow each time that hand type is levelled up, the individual scoring cards add their own chip values, and joker cards modify chips or multiplier further. The round score is chips multiplied by the multiplier.
+Your goal is therefore to reach the target score before running out of hands - not to form the most impressive poker hand. A frequently levelled modest hand backed by jokers often outscores a rarer one.
 </game_rules>
 
 Here is your current known game state:
