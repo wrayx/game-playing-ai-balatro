@@ -99,12 +99,8 @@ print(
         f'{d.class_name}@{d.bbox[0]}' for d in sorted(ds, key=lambda d: d.bbox[0])
     )
 )
-print(
-    'old prompt index : ' + ', '.join(f'{i}:{d.class_name}' for i, d in enumerate(p))
-)
-print(
-    'old exec index   : ' + ', '.join(f'{i}:{d.class_name}' for i, d in enumerate(e))
-)
+print('old prompt index : ' + ', '.join(f'{i}:{d.class_name}' for i, d in enumerate(p)))
+print('old exec index   : ' + ', '.join(f'{i}:{d.class_name}' for i, d in enumerate(e)))
 print(
     'fixed hand       : '
     + ', '.join(f'{i}:{d.class_name}@{d.bbox[0]}' for i, d in enumerate(hand))

@@ -276,20 +276,29 @@ Make immediate, optimal decisions based on the complete card information provide
                 f'Card {i}: {card["class_name"]} (confidence: {card["confidence"]:.2f})'
             )
 
+            # Always show the raw OCR alongside any parse. The parser drops the
+            # suit whenever OCR garbles it, and a confident wrong rank used to
+            # replace the raw text entirely -- hiding the evidence that would
+            # have corrected it. '+11 chips' identifies an Ace even when the
+            # rank word is unreadable.
+            descriptors = []
+
             parsed = card.get('parsed_description') or {}
             if parsed.get('english_name'):
                 descriptor = parsed['english_name']
                 short_code = parsed.get('short_code')
                 if short_code:
                     descriptor += f' [{short_code}]'
-                cards_info.append(f'{base_line} -> {descriptor}')
-                continue
+                descriptors.append(descriptor)
 
-            if card.get('description_text'):
-                desc_text = card['description_text']
-                if len(desc_text) > 100:
-                    desc_text = desc_text[:100] + '...'
-                cards_info.append(f'{base_line} -> {desc_text}')
+            desc_text = ' '.join((card.get('description_text') or '').split())
+            if len(desc_text) > 100:
+                desc_text = desc_text[:100] + '...'
+            if desc_text:
+                descriptors.append(f'raw: {desc_text}')
+
+            if descriptors:
+                cards_info.append(f'{base_line} -> {" | ".join(descriptors)}')
             else:
                 cards_info.append(base_line)
 
@@ -358,12 +367,14 @@ Discarding cards also draws replacements back up to your hand size - that is wha
 Each blind gives you a limited number of hands and discards (4 and 3 by default). Spending your last hand without reaching the target ends the run.
 Scoring is not simply the rank of your hand: the hand type contributes base chips and a multiplier that grow each time that hand type is levelled up, the individual scoring cards add their own chip values, and joker cards modify chips or multiplier further. The round score is chips multiplied by the multiplier.
 Your goal is therefore to reach the target score before running out of hands - not to form the most impressive poker hand. A frequently levelled modest hand backed by jokers often outscores a rarer one.
+
+Card descriptions are read off the screen with OCR and are often garbled ('Hce of Diamonds' is the Ace of Diamonds). Each description ends with that card's chip value, which survives a bad read and narrows the rank: 11 chips is an Ace, 10 chips is a Ten or a face card, and any other number is that card's rank. Use the chip value and the suit line to recover a card whose rank word is unreadable, rather than treating it as unknown.
 </game_rules>
 
 Here is your current known game state:
 
 <game_state>
-Current cards in ({len(game_state.get('cards', []))}) cards) hand:
+Current cards in hand ({len(game_state.get('cards', []))} cards):
 {chr(10).join(cards_info) if cards_info else 'No cards detected'}{ocr_status}
 
 Current Joker cards ({len(game_state.get('jokers', []))} active) enabled:

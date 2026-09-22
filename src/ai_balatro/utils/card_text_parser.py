@@ -61,7 +61,22 @@ _SUIT_PATTERNS = [
     ]
 ]
 
-_RANK_PATTERN = re.compile(r'(10|[2-9]|[AKQJ]|T)', re.IGNORECASE)
+# English tooltips spell the rank out ('Ace of Spades'), and OCR often merges
+# the words ('Aceof'), so match the word before falling back to a bare token.
+_RANK_WORDS = [
+    (re.compile(r'ACE', re.IGNORECASE), 'A'),
+    (re.compile(r'KING', re.IGNORECASE), 'K'),
+    (re.compile(r'QUEEN', re.IGNORECASE), 'Q'),
+    (re.compile(r'JACK', re.IGNORECASE), 'J'),
+    (re.compile(r'TEN', re.IGNORECASE), '10'),
+]
+
+_RANK_DIGITS = re.compile(r'(10|[2-9])')
+
+# A bare letter rank, but never one embedded in a word. The old pattern allowed
+# a lone 'T' anywhere, so a misread 'of' -> 'ot' silently parsed as Ten -- an
+# Ace of Diamonds was handed to the model as a Ten.
+_RANK_LETTERS = re.compile(r'(?<![A-Za-z])([AKQJ])(?![A-Za-z])', re.IGNORECASE)
 
 
 def _normalize_text(text: str) -> str:
@@ -97,14 +112,19 @@ def _detect_suit(text: str) -> Optional[str]:
 
 def _extract_rank(text: str) -> Optional[str]:
     """Extract rank token from normalized text."""
-    match = _RANK_PATTERN.search(text)
-    if not match:
-        return None
+    for pattern, rank in _RANK_WORDS:
+        if pattern.search(text):
+            return rank
 
-    token = match.group(1).upper()
-    if token == 'T':
-        return '10'
-    return token
+    match = _RANK_DIGITS.search(text)
+    if match:
+        return match.group(1)
+
+    match = _RANK_LETTERS.search(text)
+    if match:
+        return match.group(1).upper()
+
+    return None
 
 
 def parse_card_description(description_text: str) -> Optional[Dict[str, Optional[str]]]:
@@ -125,7 +145,10 @@ def parse_card_description(description_text: str) -> Optional[Dict[str, Optional
 
     primary_text = _extract_primary_line(normalized_text)
 
-    suit = _detect_suit(primary_text)
+    # English tooltips put the suit on its own line below the rank, so the suit
+    # has to come from the whole text. The rank stays on the first line: the
+    # chips line ('+10 chips') would otherwise match as a rank of 10.
+    suit = _detect_suit(normalized_text)
     rank = _extract_rank(primary_text)
 
     result: Dict[str, Optional[str]] = {
