@@ -101,3 +101,28 @@ class TestCorrectingInBothDirections:
         assert selected == wanted
         assert [i for i in wanted if i not in selected] == []
         assert [i for i in selected if i not in wanted] == []
+
+
+class TestArcCurvature:
+    """The hand is fanned, so a central card sits above the outer edges.
+
+    Measured live: five selected cards were lifted 23-32px while an unselected
+    central card sat 14px above the low right edge. Reading that as a sixth
+    selection made the executor refuse a legal play.
+    """
+
+    def test_arc_lift_does_not_produce_a_sixth_selection(self):
+        baseline = hand(0, 0, 0, 0, 0, 0, 0, 0)
+        current = hand(23, 25, 28, 32, 14, 25, 0, 1)
+        assert engine_for(current)._selected_indices(baseline, FRAME) == [0, 1, 2, 3, 5]
+
+    def test_never_reports_more_than_the_game_allows(self):
+        baseline = hand(0, 0, 0, 0, 0, 0, 0, 0)
+        current = hand(30, 29, 28, 27, 26, 25, 24, 23)
+        selected = engine_for(current)._selected_indices(baseline, FRAME)
+        assert len(selected) <= CardActionEngine.MAX_SELECTED_CARDS
+
+    def test_five_genuine_selections_are_all_kept(self):
+        baseline = hand(0, 0, 0, 0, 0, 0, 0, 0)
+        current = hand(25, 0, 25, 0, 25, 0, 25, 25)
+        assert engine_for(current)._selected_indices(baseline, FRAME) == [0, 2, 4, 6, 7]

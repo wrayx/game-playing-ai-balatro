@@ -542,6 +542,13 @@ class CardActionEngine:
     #: A selected card lifts clear of the few pixels a hover adds.
     SELECTION_LIFT_PX = 10
 
+    #: Balatro never lets more than five cards be selected at once. The hand is
+    #: fanned in an arc, so a central card can sit above the cards at the low
+    #: outer edge without being selected -- measured at 14px of arc against
+    #: 23-32px for real selections. When more than five clear the threshold,
+    #: the game's own limit breaks the tie.
+    MAX_SELECTED_CARDS = 5
+
     def _detect_hand(self, frame: np.ndarray) -> List[Detection]:
         """Detect hand cards in a frame using whichever detector is configured."""
         if self.multi_detector is not None:
@@ -568,17 +575,28 @@ class CardActionEngine:
             return []
 
         floor = max(card.bbox[1] for card in current)
-        selected: List[int] = []
+        lifted: List[tuple] = []
 
         for index, card in enumerate(baseline):
             matches = [c for c in current if abs(c.bbox[0] - card.bbox[0]) < 25]
             if not matches:
                 continue
             match = min(matches, key=lambda c: abs(c.bbox[0] - card.bbox[0]))
-            if floor - match.bbox[1] >= self.SELECTION_LIFT_PX:
-                selected.append(index)
+            lift = floor - match.bbox[1]
+            if lift >= self.SELECTION_LIFT_PX:
+                lifted.append((lift, index))
 
-        return selected
+        if len(lifted) > self.MAX_SELECTED_CARDS:
+            # Arc curvature raised a card that is not selected; the genuinely
+            # selected ones are lifted furthest.
+            logger.debug(
+                f'{len(lifted)} cards above the lift threshold; keeping the '
+                f'{self.MAX_SELECTED_CARDS} highest'
+            )
+            lifted.sort(key=lambda item: item[0], reverse=True)
+            lifted = lifted[: self.MAX_SELECTED_CARDS]
+
+        return sorted(index for _, index in lifted)
 
     #: How long to wait for the board to stop changing after an action.
     SETTLE_TIMEOUT = 8.0
