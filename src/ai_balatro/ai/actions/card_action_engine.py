@@ -287,9 +287,16 @@ class CardActionEngine:
                         logger.warning(
                             f'Cards {extra} selected but not wanted; deselecting'
                         )
-                    for index in sorted(set(missing) | set(extra)):
-                        if index < len(hand_cards):
-                            self._click_card(hand_cards[index], index)
+                    # Click against a fresh detection, not the baseline: the
+                    # hand shifts as cards lift and settle, so coordinates
+                    # captured before the first click can land on a neighbour.
+                    current_hand = self._detect_hand(frame) or hand_cards
+                    # Deselect first. The game ignores a click that would select
+                    # a sixth card, so selecting before clearing the extras
+                    # silently drops one of the cards that was asked for.
+                    for index in list(extra) + list(missing):
+                        if index < len(current_hand):
+                            self._click_card(current_hand[index], index)
                             time.sleep(self.mouse_controller.click_interval)
                     time.sleep(0.8)
                     recheck = self.screen_capture.capture_once()

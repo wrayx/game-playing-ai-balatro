@@ -126,3 +126,17 @@ class TestArcCurvature:
         baseline = hand(0, 0, 0, 0, 0, 0, 0, 0)
         current = hand(25, 0, 25, 0, 25, 0, 25, 25)
         assert engine_for(current)._selected_indices(baseline, FRAME) == [0, 2, 4, 6, 7]
+
+
+def test_extras_are_cleared_before_missing_are_added():
+    """Ordering matters: the game ignores a click that would select a sixth card.
+
+    Selecting first can therefore drop one of the requested cards silently --
+    observed live as a five-card flush landing as four.
+    """
+    import inspect
+
+    source = inspect.getsource(CardActionEngine._execute_card_indices)
+    assert 'list(extra) + list(missing)' in source, (
+        'correction must deselect extras before selecting missing cards'
+    )
