@@ -5,6 +5,7 @@ from typing import List, Dict, Any, Optional, Tuple
 import numpy as np
 from pathlib import Path
 
+from ..core import entities
 from ..core.detection import Detection
 from ..core.multi_yolo_detector import MultiYOLODetector
 from ..utils.image_cropper import ImageCropper, RegionMatcher
@@ -65,16 +66,11 @@ class CardTooltipService:
             self.ocr_engine = None
             logger.warning('RapidOCR not available, text extraction will be limited')
 
-        # Balatro-specific class mappings
-        self.tooltip_classes = {'card_description', 'poker_card_description'}
-        self.card_classes = {
-            'poker_card_front',
-            'joker_card',
-            'planet_card',
-            'tarot_card',
-            'spectral_card',
-            'poker_card_stack',
-        }
+        # Balatro-specific class mappings, sourced from the shared taxonomy.
+        # Tooltip matching is geometric rather than index-based, so the pile is
+        # included here: a tooltip can sit next to it without breaking anything.
+        self.tooltip_classes = set(entities.DESCRIPTION_CLASSES)
+        self.card_classes = set(entities.DESCRIBABLE_CLASSES | entities.PILE_CLASSES)
 
         # Card information cache
         self.card_info_cache: Dict[str, Dict] = {}

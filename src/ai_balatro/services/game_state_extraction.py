@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from ..core import entities
 from ..core.detection import Detection
 from ..core.multi_yolo_detector import MultiYOLODetector
 from ..core.screen_capture import ScreenCapture
@@ -99,44 +100,41 @@ class GameStateExtractionService:
     ) -> Tuple[Dict[str, Any], List[Detection]]:
         """Create baseline game state payload from detections."""
         timestamp = time.time()
-        cards: List[Dict[str, Any]] = []
-        jokers: List[Dict[str, Any]] = []
         buttons: List[Dict[str, Any]] = []
-        hand_cards: List[Detection] = []
 
-        for detection in entities_detection:
-            name = detection.class_name.lower()
-            x1, y1, x2, y2 = detection.bbox
+        # Hand cards define the index space the LLM addresses cards by, so they
+        # come from the shared taxonomy rather than a local filter. Jokers and
+        # the deck pile are not part of the hand and must not shift its indices.
+        hand_cards = entities.hand_cards(entities_detection)
+        cards = [
+            {
+                'index': idx,
+                'class_name': detection.class_name,
+                'confidence': detection.confidence,
+                'position': list(detection.bbox),
+                'center': detection.center,
+                'width': detection.width,
+                'height': detection.height,
+                'description_text': '',
+                'description_detected': False,
+                'parsed_description': None,
+                'ocr_confidence': 0.0,
+            }
+            for idx, detection in enumerate(hand_cards)
+        ]
 
-            if 'card' in name and 'tooltip' not in name:
-                hand_cards.append(detection)
-                cards.append(
-                    {
-                        'index': len(cards),
-                        'class_name': detection.class_name,
-                        'confidence': detection.confidence,
-                        'position': [x1, y1, x2, y2],
-                        'center': detection.center,
-                        'width': detection.width,
-                        'height': detection.height,
-                        'description_text': '',
-                        'description_detected': False,
-                        'parsed_description': None,
-                        'ocr_confidence': 0.0,
-                    }
-                )
-            elif 'joker' in name:
-                jokers.append(
-                    {
-                        'index': len(jokers),
-                        'class_name': detection.class_name,
-                        'confidence': detection.confidence,
-                        'position': [x1, y1, x2, y2],
-                        'center': detection.center,
-                        'width': detection.width,
-                        'height': detection.height,
-                    }
-                )
+        jokers = [
+            {
+                'index': idx,
+                'class_name': detection.class_name,
+                'confidence': detection.confidence,
+                'position': list(detection.bbox),
+                'center': detection.center,
+                'width': detection.width,
+                'height': detection.height,
+            }
+            for idx, detection in enumerate(entities.jokers(entities_detection))
+        ]
 
         for detection in ui_detection:
             if 'button' in detection.class_name.lower():
@@ -151,12 +149,6 @@ class GameStateExtractionService:
                         'height': detection.height,
                     }
                 )
-
-        cards.sort(key=lambda c: c['position'][0])
-        hand_cards.sort(key=lambda d: d.bbox[0])
-
-        for idx, card in enumerate(cards):
-            card['index'] = idx
 
         game_phase = self._infer_game_phase(buttons)
 

@@ -58,22 +58,22 @@ class TestCardPositionDetector:
         # Create mock detections
         detections = [
             Detection(0, 'poker_card_front', 0.9, (100, 100, 150, 200)),
-            Detection(1, 'joker_card', 0.8, (200, 100, 250, 200)),
+            Detection(1, 'joker_card', 0.8, (200, 100, 250, 200)),  # 小丑牌，不在手牌中
             Detection(2, 'card_description', 0.7, (50, 300, 100, 350)),  # 非可玩牌
             Detection(
                 3, 'poker_card_back', 0.6, (300, 100, 350, 200)
             ),  # 背面，非可玩牌
-            Detection(4, 'tarot_card', 0.85, (50, 100, 100, 200)),
+            Detection(4, 'tarot_card', 0.85, (50, 100, 100, 200)),  # 消耗牌，不在手牌中
+            Detection(5, 'poker_card_front', 0.9, (400, 100, 450, 200)),
         ]
 
         detector = CardPositionDetector()
         hand_cards = detector.get_hand_cards(detections)
 
-        # 应该检测到3张可玩牌，按x坐标排序
-        assert len(hand_cards) == 3
-        assert hand_cards[0].class_name == 'tarot_card'  # x=50
-        assert hand_cards[1].class_name == 'poker_card_front'  # x=100
-        assert hand_cards[2].class_name == 'joker_card'  # x=200
+        # 只有 poker_card_front 可以出牌/弃牌，小丑牌与消耗牌不占用手牌索引
+        assert len(hand_cards) == 2
+        assert hand_cards[0].class_name == 'poker_card_front'  # x=100
+        assert hand_cards[1].class_name == 'poker_card_front'  # x=400
 
 
 class TestActionExecutor:
