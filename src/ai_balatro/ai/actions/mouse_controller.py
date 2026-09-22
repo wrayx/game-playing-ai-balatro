@@ -281,47 +281,111 @@ class MouseController:
             logger.warning(f'Window focus handling failed: {e}')
             return True  # Don't block subsequent operations on failure
 
-    def _ensure_focus_macos(self, capture_region: dict) -> bool:
-        """Ensure window focus on macOS system."""
-        try:
-            if self.focus_method == 'applescript' or self.focus_method == 'auto':
-                # Use AppleScript to activate window (recommended method)
-                script = """
-                tell application "System Events"
-                    set frontApp to name of first application process whose frontmost is true
-                    if frontApp is not "Balatro" then
-                        tell application "Balatro" to activate
-                        delay 0.1
-                    end if
-                end tell
-                """
+    def _game_pid(self) -> Optional[int]:
+        """PID of the detected game window, if the capture layer found one."""
+        if not self.screen_capture:
+            return None
+        info = self.screen_capture.get_window_info() or {}
+        pid = info.get('pid')
+        return int(pid) if pid else None
 
+    def _is_game_active(self, pid: int) -> bool:
+        """Check whether the game is the ACTIVE APPLICATION.
+
+        macOS swallows the first click into an inactive application, and what
+        decides that is the active app rather than the frontmost window: an app
+        with no windows of its own (Finder) can hold activation while the game
+        window is still visually on top. Checking window order alone reports a
+        false positive in exactly that case.
+        """
+        try:
+            from AppKit import NSWorkspace
+        except ImportError:
+            pass
+        else:
+            try:
+                app = NSWorkspace.sharedWorkspace().frontmostApplication()
+                if app is not None:
+                    return int(app.processIdentifier()) == pid
+            except Exception:  # noqa: BLE001
+                logger.debug('NSWorkspace lookup failed', exc_info=True)
+
+        # Fallback for a machine without AppKit: front-to-back window order.
+        try:
+            import Quartz
+
+            windows = Quartz.CGWindowListCopyWindowInfo(
+                Quartz.kCGWindowListOptionOnScreenOnly
+                | Quartz.kCGWindowListExcludeDesktopElements,
+                Quartz.kCGNullWindowID,
+            )
+        except Exception:  # noqa: BLE001
+            return False
+
+        for window in windows:
+            if window.get('kCGWindowLayer', 0) != 0:
+                continue
+            return window.get('kCGWindowOwnerPID') == pid
+        return False
+
+    def _ensure_focus_macos(self, capture_region: dict) -> bool:
+        """Ensure the game window is frontmost, verifying rather than assuming.
+
+        Balatro runs on LOVE, so System Events reports the process as 'love'
+        while Quartz reports the window owner as 'Balatro'. The previous script
+        compared the frontmost process against "Balatro", so it never matched,
+        then tried to activate an application of that name -- which does not
+        resolve. Every call hit the 2s timeout, and the timeout handler skipped
+        the click fallback and returned True anyway. Focus never worked, and the
+        first card click was silently consumed activating the window, leaving
+        one fewer card selected than the model asked for.
+        """
+        pid = self._game_pid()
+
+        if pid and self._is_game_active(pid):
+            return True
+
+        if pid and self.focus_method in ('applescript', 'auto'):
+            script = (
+                'tell application "System Events" to set frontmost of '
+                f'(first application process whose unix id is {pid}) to true'
+            )
+            try:
                 result = subprocess.run(
                     ['osascript', '-e', script],
                     capture_output=True,
                     text=True,
                     timeout=2,
                 )
+                if result.returncode != 0:
+                    logger.warning(
+                        f'AppleScript activation failed: {result.stderr.strip()}'
+                    )
+            except subprocess.TimeoutExpired:
+                logger.warning('AppleScript execution timeout')
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f'macOS focus handling failed: {e}')
 
-                if result.returncode == 0:
-                    logger.info('Activated Balatro window using AppleScript')
-                    time.sleep(0.2)  # Wait for window activation
-                    return True
-                else:
-                    logger.warning(f'AppleScript activation failed: {result.stderr}')
+            time.sleep(0.2)
+            if self._is_game_active(pid):
+                logger.info('Activated game window using AppleScript')
+                return True
 
-            if self.focus_method == 'click' or (
-                self.focus_method == 'auto' and self.focus_method != 'applescript'
-            ):
-                # Alternative: click window title bar to activate
-                return self._click_to_focus(capture_region)
+        if self.focus_method in ('click', 'auto'):
+            self._click_to_focus(capture_region)
+            time.sleep(0.2)
+            if pid is None:
+                return True  # nothing to verify against
+            if self._is_game_active(pid):
+                logger.info('Activated game window by clicking its title bar')
+                return True
 
-        except subprocess.TimeoutExpired:
-            logger.warning('AppleScript execution timeout')
-        except Exception as e:
-            logger.warning(f'macOS focus handling failed: {e}')
-
-        return True  # Don't block operations on failure
+        logger.warning(
+            'Could not confirm the game is the active application. The next click '
+            'will likely be consumed activating it, selecting one fewer card '
+            'than requested.'
+        )
+        return False
 
     def _ensure_focus_windows(self, capture_region: dict) -> bool:
         """Ensure window focus on Windows system."""

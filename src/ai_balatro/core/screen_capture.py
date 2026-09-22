@@ -383,6 +383,10 @@ class ScreenCapture:
                 'owner': window_info['owner'],
                 'bounds': window_info['bounds'],
                 'window_id': window_info['window'].get('kCGWindowNumber', 0),
+                # Activation targets the pid: Balatro runs on LOVE, so its
+                # process is named 'love' even though Quartz reports the window
+                # owner as 'Balatro'.
+                'pid': window_info['window'].get('kCGWindowOwnerPID', 0),
             }
 
             # Set capture region
