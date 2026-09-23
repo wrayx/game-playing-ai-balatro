@@ -428,6 +428,15 @@ Make immediate, optimal decisions based on the complete card information provide
                 + (f' -> {text}' if text else ' -> (description unreadable)')
             )
 
+        held = len(game_state.get('consumables', []))
+        consumable_warning = (
+            '\n  Both slots are full, so a tarot, planet or spectral card '
+            'cannot be bought until one is used. The game shows a Buy button '
+            'anyway and the purchase silently does nothing.'
+            if held >= 2
+            else ''
+        )
+
         owned = []
         for joker in game_state.get('jokers', []):
             text = ' '.join(str(joker.get('description_text', '')).split())
@@ -443,6 +452,8 @@ You have ${cash}.
 
 Jokers you already own ({len(owned)} of 5 slots):
 {chr(10).join(owned) if owned else '  None'}
+
+Consumables you already hold: {held} of 2 slots.{consumable_warning}
 
 Buy something with buy_item(index=N), using the item numbers above.
 Leave the shop with click_button(button_type='next').

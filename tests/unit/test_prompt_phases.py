@@ -192,3 +192,22 @@ def test_unreadable_joker_says_so_rather_than_looking_informative():
 def test_shop_prompt_names_the_interest_threshold():
     prompt = agent()._create_analysis_prompt(shop_state())
     assert '$25' in prompt
+
+
+def test_shop_prompt_warns_when_consumable_slots_are_full():
+    """Balatro refuses to sell a consumable with no slot free, yet still shows
+    a Buy button that does nothing -- so the agent retried the same purchase
+    and only saw that its money never moved."""
+    st = shop_state([shop_item(0, 'tarot_card', '3', 'Strength')])
+    st['consumables'] = [{'index': 0}, {'index': 1}]
+    prompt = agent()._create_analysis_prompt(st)
+    assert '2 of 2 slots' in prompt
+    assert 'Both slots are full' in prompt
+
+
+def test_shop_prompt_does_not_warn_with_a_free_slot():
+    st = shop_state([shop_item(0, 'tarot_card', '3', 'Strength')])
+    st['consumables'] = [{'index': 0}]
+    prompt = agent()._create_analysis_prompt(st)
+    assert '1 of 2 slots' in prompt
+    assert 'Both slots are full' not in prompt

@@ -147,6 +147,14 @@ class GameStateExtractionService:
             item for item, tag in priced if tag is None and entities.is_joker(item)
         ]
 
+        # Consumables you already hold. Balatro refuses to sell another
+        # when both slots are full, and shows a Buy button that silently
+        # does nothing -- so without this the agent retries the same
+        # purchase forever, seeing only that its money never moved.
+        owned_consumables = [
+            item for item, tag in priced if tag is None and entities.is_consumable(item)
+        ]
+
         jokers = [
             {
                 'index': idx,
@@ -190,6 +198,15 @@ class GameStateExtractionService:
             'ui_text_elements': [],
             'ui_text_values': {},
             'shop_items': [],
+            'consumables': [
+                {
+                    'index': position,
+                    'class_name': detection.class_name,
+                    'confidence': detection.confidence,
+                    'position': list(detection.bbox),
+                }
+                for position, detection in enumerate(owned_consumables)
+            ],
             '_owned_joker_detections': owned_jokers,
             '_shop_stock_detections': shop_stock,
         }

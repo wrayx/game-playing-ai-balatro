@@ -218,8 +218,15 @@ class ShopActionEngine:
         # the signal that it happened.
         if cash_before is not None and cash_after is not None:
             if cash_after >= cash_before:
+                hint = ''
+                if entities.is_consumable(item):
+                    hint = (
+                        ' -- a tarot, planet or spectral card cannot be bought '
+                        'while both consumable slots are full, and the game '
+                        'shows a Buy button regardless'
+                    )
                 result['error_message'] = (
-                    f'Buy did not take effect: cash is still {cash_after}'
+                    f'Buy did not take effect: cash is still {cash_after}{hint}'
                 )
                 logger.error(result['error_message'])
                 return result
