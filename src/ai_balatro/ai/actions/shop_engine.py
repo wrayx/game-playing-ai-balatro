@@ -106,6 +106,18 @@ class ShopActionEngine:
     # Acting
     # ------------------------------------------------------------------
 
+    def _settled_frame(self) -> Optional[np.ndarray]:
+        """A frame with the cursor moved off anything that raises a tooltip.
+
+        The engine takes its own captures, so it needs the same parking that
+        capture_state does: a cursor left on a card hides whatever sits behind
+        its tooltip, and a pack read that way reported one item when two were
+        on offer.
+        """
+        self.mouse_controller.park_cursor()
+        time.sleep(0.3)
+        return self.screen_capture.capture_once()
+
     def execute_buy(self, index: int, description: str = '') -> Dict[str, Any]:
         """Buy the shop item at the given index.
 
@@ -131,7 +143,7 @@ class ShopActionEngine:
             logger.error(result['error_message'])
             return result
 
-        frame = self.screen_capture.capture_once()
+        frame = self._settled_frame()
         if frame is None:
             result['error_message'] = 'Screen capture failed'
             return result
@@ -236,7 +248,13 @@ class ShopActionEngine:
     #: The Select button is drawn just under the chosen card. The UI model has
     #: no class for it, so it is clicked relative to the card instead -- which
     #: is anchored to a real detection rather than a fixed window position.
-    SELECT_OFFSET_FRACTION = 0.04
+    #:
+    #: Measured as a fraction of the CARD's height, not the window's: on a
+    #: Buffoon pack the selected joker was 99px tall with Select centred 9px
+    #: below it, and on a Standard Pack a 118px card had it 11px below. A
+    #: window-relative offset put the click just under the button and the
+    #: choice silently did not register.
+    SELECT_OFFSET_FRACTION = 0.09
 
     def pack_contents(self, frame: np.ndarray) -> List[Detection]:
         """The cards or items an opened pack is offering, left to right.
@@ -256,6 +274,18 @@ class ShopActionEngine:
             and not entities.is_description(d)
         ]
         return entities.sort_left_to_right(offered)
+
+    def _is_selected(self, item: Detection, offered: List[Detection]) -> bool:
+        """Whether this item is the one lifted above the rest.
+
+        A pack lifts the chosen item, exactly as the table lifts a selected
+        card. Measured on a Buffoon pack: the chosen joker sat at y=363 while
+        the other sat at y=379.
+        """
+        if len(offered) < 2:
+            return False
+        others = [o for o in offered if o is not item]
+        return all(item.bbox[1] < other.bbox[1] - 8 for other in others)
 
     def choose_from_pack(self, index: int, description: str = '') -> Dict[str, Any]:
         """Take one item from an opened booster pack.
@@ -278,7 +308,7 @@ class ShopActionEngine:
             logger.error(result['error_message'])
             return result
 
-        frame = self.screen_capture.capture_once()
+        frame = self._settled_frame()
         if frame is None:
             result['error_message'] = 'Screen capture failed'
             return result
@@ -299,15 +329,40 @@ class ShopActionEngine:
         item = offered[index]
         logger.info(f'Taking pack item {index} ({item.class_name}) - {description}')
 
-        if not self.mouse_controller.click_at(*self._to_screen(item.center, frame)):
-            result['error_message'] = f'Could not click pack item {index}'
+        # Selecting lifts the item above the others, so an already-selected one
+        # must not be clicked again: that deselects it and the Select button
+        # disappears before it can be pressed.
+        if not self._is_selected(item, offered):
+            if not self.mouse_controller.click_at(*self._to_screen(item.center, frame)):
+                result['error_message'] = f'Could not click pack item {index}'
+                return result
+            time.sleep(0.6)
+
+        # Re-read: the chosen item has moved, and Select is drawn under where
+        # it sits now, not where it sat before the click.
+        frame = self._settled_frame()
+        if frame is None:
+            result['error_message'] = 'Screen capture failed after selecting'
             return result
 
-        time.sleep(0.6)
+        current = self.pack_contents(frame)
+        match = [c for c in current if abs(c.bbox[0] - item.bbox[0]) < 40]
+        if not match:
+            result['error_message'] = f'Pack item {index} vanished after clicking'
+            logger.error(result['error_message'])
+            return result
 
-        # Select sits just below the chosen card.
-        select_y = item.bbox[3] + frame.shape[0] * self.SELECT_OFFSET_FRACTION
-        centre_x = (item.bbox[0] + item.bbox[2]) // 2
+        chosen = match[0]
+        if not self._is_selected(chosen, current):
+            result['error_message'] = (
+                f'Refusing to confirm: pack item {index} did not stay selected'
+            )
+            logger.error(result['error_message'])
+            return result
+
+        card_height = chosen.bbox[3] - chosen.bbox[1]
+        select_y = chosen.bbox[3] + card_height * self.SELECT_OFFSET_FRACTION
+        centre_x = (chosen.bbox[0] + chosen.bbox[2]) // 2
         if not self.mouse_controller.click_at(
             *self._to_screen((centre_x, int(select_y)), frame)
         ):
@@ -318,7 +373,7 @@ class ShopActionEngine:
 
         # The pack closing is the evidence it was taken; the screen redraws
         # either way, so nothing else proves it.
-        after = self.screen_capture.capture_once()
+        after = self._settled_frame()
         if after is not None and self.pack_is_open(after):
             result['error_message'] = (
                 'Choice did not take effect: the pack is still open'

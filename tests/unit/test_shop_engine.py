@@ -161,3 +161,24 @@ class TestPackPurchases:
         result = e.execute_buy(0)
         # Fails later for want of a real screen, but not on the pack guard.
         assert 'booster packs' not in result['error_message']
+
+
+class TestPackSelectOffset:
+    """Select has no UI class, so it is clicked relative to the chosen card.
+
+    Scaled by the card's height rather than the window's: measured at 9px below
+    a 99px joker and 11px below a 118px playing card. A window-relative offset
+    put the click just under the button and the choice did not register.
+    """
+
+    def test_offset_lands_inside_the_button_for_a_joker(self):
+        card_top, card_bottom = 361, 460
+        height = card_bottom - card_top
+        y = card_bottom + height * ShopActionEngine.SELECT_OFFSET_FRACTION
+        assert 458 <= y <= 480, f'{y} is outside the measured Select button'
+
+    def test_offset_lands_inside_the_button_for_a_playing_card(self):
+        card_top, card_bottom = 352, 470
+        height = card_bottom - card_top
+        y = card_bottom + height * ShopActionEngine.SELECT_OFFSET_FRACTION
+        assert 468 <= y <= 492, f'{y} is outside the measured Select button'
