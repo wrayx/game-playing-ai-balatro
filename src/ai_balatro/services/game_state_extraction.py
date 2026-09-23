@@ -184,7 +184,7 @@ class GameStateExtractionService:
                     }
                 )
 
-        game_phase = self._infer_game_phase(buttons, hand_cards)
+        game_phase = self._infer_game_phase(buttons, hand_cards, shop_stock)
 
         game_state = {
             'timestamp': timestamp,
@@ -217,6 +217,7 @@ class GameStateExtractionService:
         self,
         buttons: Sequence[Dict[str, Any]],
         hand_cards: Sequence[Detection] = (),
+        shop_stock: Sequence[Any] = (),
     ) -> str:
         """Name the screen the game is showing.
 
@@ -236,6 +237,12 @@ class GameStateExtractionService:
         # only thing that distinguishes the two.
         if 'button_card_pack_skip' in classes:
             return 'pack_opening'
+
+        # Something priced is for sale, so this is a shop. More reliable than
+        # its buttons: the UI model misses Next Round and Reroll in some
+        # states, and then nothing identifies the screen at all.
+        if shop_stock:
+            return 'shop'
 
         if hand_cards:
             return 'playing'

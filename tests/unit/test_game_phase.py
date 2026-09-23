@@ -88,3 +88,23 @@ def test_a_blind_skip_is_not_a_pack():
         )
         == 'blind_select'
     )
+
+
+def test_a_priced_item_identifies_the_shop():
+    """More reliable than the shop's buttons: the UI model misses Next Round
+    and Reroll in some states, leaving nothing to identify the screen."""
+    stock = [(card(), card())]  # (item, price tag) pairs
+    phase = service()._infer_game_phase(buttons('button_options'), [], stock)
+    assert phase == 'shop'
+
+
+def test_stock_outranks_a_hand_on_screen():
+    """Owned cards can be visible in the shop; a price tag cannot."""
+    stock = [(card(), card())]
+    assert service()._infer_game_phase(buttons(), [card()], stock) == 'shop'
+
+
+def test_no_stock_leaves_the_other_phases_alone():
+    assert (
+        service()._infer_game_phase(buttons('button_cash_out'), [], []) == 'blind_won'
+    )
