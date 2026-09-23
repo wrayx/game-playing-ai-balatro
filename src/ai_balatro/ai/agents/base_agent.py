@@ -307,6 +307,25 @@ class BaseAgent(ABC):
                 # can answer in prose without calling a tool, and indexing [0]
                 # of [] raised IndexError, failing the whole cycle.
                 function_calls = result.data.get('function_calls') or []
+
+                if use_functions and functions and not function_calls:
+                    # The model sometimes explains the move it intends and
+                    # stops without calling anything. Losing the turn costs a
+                    # whole cycle including a hover sweep, so ask once more
+                    # before giving up -- far cheaper than re-reading the
+                    # board.
+                    logger.warning('   No function call returned; asking again')
+                    retry = self.llm_provider.function_call(
+                        prompt + '\n\nYou described the move but did not call a '
+                        'function. Call exactly one now.',
+                        functions,
+                        context,
+                    )
+                    if retry.success:
+                        function_calls = retry.data.get('function_calls') or []
+                        if function_calls:
+                            logger.info('   Second attempt produced a call')
+
                 if use_functions and not function_calls:
                     logger.warning(
                         '   LLM returned no function call; no action this cycle'

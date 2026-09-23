@@ -58,8 +58,11 @@ def engine(entities_list, ui_list, foreground=True):
         {
             'is_game_foreground': staticmethod(lambda: foreground),
             # Clicks fail in tests; the buy path should report that rather
-            # than raise, and the pack guard must run before any of it.
+            # than raise.
             'click_at': staticmethod(lambda *a, **k: False),
+            # The engine parks before its own captures, so a cursor resting on
+            # one item cannot hide another behind a tooltip.
+            'park_cursor': staticmethod(lambda *a, **k: True),
         },
     )()
     instance.ui_text_service = None

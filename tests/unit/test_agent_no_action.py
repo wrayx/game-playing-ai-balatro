@@ -50,3 +50,16 @@ def test_the_real_code_path_does_not_index_unconditionally():
         'indexing must be guarded by the list being non-empty, not by whether '
         'functions were offered'
     )
+
+
+def test_a_silent_turn_is_retried_before_being_given_up():
+    """The model sometimes explains the move and stops without calling
+    anything. Losing the turn costs a whole cycle including a hover sweep, so
+    the call is retried once before the turn is abandoned."""
+    import inspect
+
+    from ai_balatro.ai.agents.base_agent import BaseAgent
+
+    source = inspect.getsource(BaseAgent._llm_query)
+    assert 'No function call returned; asking again' in source
+    assert 'Call exactly one now.' in source
