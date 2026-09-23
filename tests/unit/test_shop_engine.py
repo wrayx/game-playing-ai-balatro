@@ -148,15 +148,13 @@ class TestNextRoundFallback:
 
 
 class TestPackPurchases:
-    """Packs open a selection screen that can only be skipped, so buying one
-    spends money for nothing. The model bought one anyway when the description
-    came back unreadable and it guessed at what the item was."""
+    """Packs were refused while their selection screen was unhandled. Now that
+    contents can be read and chosen from, buying one is allowed again."""
 
-    def test_refuses_to_buy_a_pack(self):
+    def test_buying_a_pack_is_no_longer_refused_outright(self):
         e = engine([item(100, class_name='card_pack')], [tag(120)])
         result = e.execute_buy(0)
-        assert result['success'] is False
-        assert 'booster packs' in result['error_message']
+        assert 'booster packs' not in result['error_message']
 
     def test_still_buys_a_joker(self):
         e = engine([item(100, class_name='joker_card')], [tag(120)])

@@ -140,20 +140,59 @@ class TestShopPrompt:
         assert 'Perishable' in prompt
         assert 'Rental' in prompt
 
-    def test_steers_away_from_packs_we_cannot_open(self):
+    def test_packs_are_presented_as_buyable(self):
+        """Packs were refused while their selection screen was unhandled."""
         prompt = agent()._create_analysis_prompt(shop_state())
-        assert 'do not buy them' in prompt
+        assert 'do not buy them' not in prompt
+        assert 'Booster packs can be opened now' in prompt
 
     def test_shop_prompt_drops_the_poker_instructions(self):
         prompt = agent()._create_analysis_prompt(shop_state())
         assert 'POKER OBJECTIVES' not in prompt
 
 
-def test_pack_opening_tells_it_to_skip_not_play():
-    prompt = agent()._create_analysis_prompt(state('pack_opening'))
+def test_pack_opening_offers_choosing_and_skipping():
+    st = state('pack_opening')
+    st['pack_items'] = [
+        {
+            'index': 0,
+            'class_name': 'joker_card',
+            'description_text': 'Blueprint copies',
+        },
+        {
+            'index': 1,
+            'class_name': 'planet_card',
+            'description_text': 'Earth levels Full House',
+        },
+    ]
+    prompt = agent()._create_analysis_prompt(st)
+    flat = ' '.join(prompt.split())
+
+    assert 'choose_from_pack(index=N)' in prompt
     assert "button_type='skip'" in prompt
-    assert 'not your hand' in prompt
+    assert 'not your hand' in flat
+    assert 'Item 0: joker_card' in prompt
+    assert 'Earth levels Full House' in prompt
     assert 'POKER OBJECTIVES' not in prompt
+
+
+def test_pack_prompt_reports_slot_pressure():
+    """A joker cannot be taken with five already held."""
+    st = state('pack_opening')
+    st['pack_items'] = [
+        {'index': 0, 'class_name': 'joker_card', 'description_text': 'x'}
+    ]
+    st['jokers'] = [
+        {
+            'index': i,
+            'class_name': 'joker_card',
+            'confidence': 0.9,
+            'description_text': 'j',
+        }
+        for i in range(5)
+    ]
+    prompt = agent()._create_analysis_prompt(st)
+    assert '5 of 5 jokers' in prompt
 
 
 def test_playing_prompt_shows_what_each_joker_does():

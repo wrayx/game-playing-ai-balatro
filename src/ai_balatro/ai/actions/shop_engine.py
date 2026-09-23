@@ -151,18 +151,6 @@ class ShopActionEngine:
 
         item, _tag = items[index]
 
-        # Opening a pack leads to a selection screen that can only be skipped,
-        # so buying one spends money for nothing. The prompt asks the model to
-        # avoid them, and it bought one anyway when the description came back
-        # unreadable and it guessed at what the item was.
-        if entities.is_pack(item):
-            result['error_message'] = (
-                f'Refusing to buy item {index}: booster packs open a selection '
-                f'screen that is not supported, so the purchase would be wasted'
-            )
-            logger.error(result['error_message'])
-            return result
-
         cash_before = self.read_cash(frame)
         logger.info(
             f'Buying shop item {index} ({item.class_name}) - {description}; '
@@ -239,6 +227,116 @@ class ShopActionEngine:
         result['cash_before'] = cash_before
         result['cash_after'] = cash_after
         return result
+
+    #: Anything above this fraction of the window is the row of jokers and
+    #: consumables you already own, which is on screen while a pack is open.
+    #: Measured: owned row at 0.11-0.12, pack contents at 0.58-0.62.
+    OWNED_ROW_MAX_FRACTION = 0.35
+
+    #: The Select button is drawn just under the chosen card. The UI model has
+    #: no class for it, so it is clicked relative to the card instead -- which
+    #: is anchored to a real detection rather than a fixed window position.
+    SELECT_OFFSET_FRACTION = 0.04
+
+    def pack_contents(self, frame: np.ndarray) -> List[Detection]:
+        """The cards or items an opened pack is offering, left to right.
+
+        Excludes the row you already own, which stays on screen, and the deck.
+        A Buffoon pack offers jokers that share a class with the ones you hold,
+        so they can only be told apart by where they sit.
+        """
+        height = frame.shape[0]
+        cutoff = height * self.OWNED_ROW_MAX_FRACTION
+
+        offered = [
+            d
+            for d in self.multi_detector.detect_entities(frame)
+            if d.bbox[1] > cutoff
+            and not entities.is_pile(d)
+            and not entities.is_description(d)
+        ]
+        return entities.sort_left_to_right(offered)
+
+    def choose_from_pack(self, index: int, description: str = '') -> Dict[str, Any]:
+        """Take one item from an opened booster pack.
+
+        Args:
+            index: Which offered item to take, left to right, zero based
+            description: Why, for the log
+        """
+        result: Dict[str, Any] = {
+            'success': False,
+            'action_executed': False,
+            'index': index,
+            'error_message': '',
+        }
+
+        if not self.mouse_controller.is_game_foreground():
+            result['error_message'] = (
+                'Refusing to choose: another window is in front of the game'
+            )
+            logger.error(result['error_message'])
+            return result
+
+        frame = self.screen_capture.capture_once()
+        if frame is None:
+            result['error_message'] = 'Screen capture failed'
+            return result
+
+        offered = self.pack_contents(frame)
+        if not offered:
+            result['error_message'] = 'No pack contents were detected'
+            logger.error(result['error_message'])
+            return result
+
+        if not 0 <= index < len(offered):
+            result['error_message'] = (
+                f'Invalid pack index {index}: the pack offers {len(offered)} items'
+            )
+            logger.error(result['error_message'])
+            return result
+
+        item = offered[index]
+        logger.info(f'Taking pack item {index} ({item.class_name}) - {description}')
+
+        if not self.mouse_controller.click_at(*self._to_screen(item.center, frame)):
+            result['error_message'] = f'Could not click pack item {index}'
+            return result
+
+        time.sleep(0.6)
+
+        # Select sits just below the chosen card.
+        select_y = item.bbox[3] + frame.shape[0] * self.SELECT_OFFSET_FRACTION
+        centre_x = (item.bbox[0] + item.bbox[2]) // 2
+        if not self.mouse_controller.click_at(
+            *self._to_screen((centre_x, int(select_y)), frame)
+        ):
+            result['error_message'] = 'Could not click the Select button'
+            return result
+
+        self._wait_until_settled()
+
+        # The pack closing is the evidence it was taken; the screen redraws
+        # either way, so nothing else proves it.
+        after = self.screen_capture.capture_once()
+        if after is not None and self.pack_is_open(after):
+            result['error_message'] = (
+                'Choice did not take effect: the pack is still open'
+            )
+            logger.error(result['error_message'])
+            return result
+
+        logger.info(f'Took pack item {index}')
+        result['success'] = True
+        result['action_executed'] = True
+        return result
+
+    def pack_is_open(self, frame: np.ndarray) -> bool:
+        """Whether a booster pack is showing its contents."""
+        return any(
+            d.class_name.lower() == 'button_card_pack_skip'
+            for d in self.multi_detector.detect_ui(frame)
+        )
 
     # ------------------------------------------------------------------
     # Internals

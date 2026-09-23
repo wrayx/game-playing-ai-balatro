@@ -160,6 +160,8 @@ class ActionExecutor(BaseProcessor):
             return self._execute_click_button(arguments)
         elif function_name == 'buy_item':
             return self._execute_buy_item(arguments)
+        elif function_name == 'choose_from_pack':
+            return self._execute_choose_from_pack(arguments)
         else:
             return ProcessingResult(
                 success=False, data=None, errors=[f'未知的函数: {function_name}']
@@ -190,6 +192,33 @@ class ActionExecutor(BaseProcessor):
                 'description': args.get('description', ''),
                 'cash_before': result.get('cash_before'),
                 'cash_after': result.get('cash_after'),
+            },
+            errors=[result['error_message']] if not result['success'] else [],
+        )
+
+    def _execute_choose_from_pack(self, args: Dict[str, Any]) -> ProcessingResult:
+        """从已打开的补充包中选择一件物品。"""
+        if self.shop_engine is None:
+            return ProcessingResult(
+                success=False,
+                data=None,
+                errors=['商店执行器不可用（需要多模型检测器）'],
+            )
+
+        index = args.get('index')
+        if not isinstance(index, int) or index < 0:
+            return ProcessingResult(
+                success=False, data=None, errors=['index 必须是非负整数']
+            )
+
+        result = self.shop_engine.choose_from_pack(index, args.get('description', ''))
+
+        return ProcessingResult(
+            success=result['success'],
+            data={
+                'action': 'choose_from_pack',
+                'index': index,
+                'description': args.get('description', ''),
             },
             errors=[result['error_message']] if not result['success'] else [],
         )

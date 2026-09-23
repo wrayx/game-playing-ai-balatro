@@ -470,12 +470,53 @@ HOW TO DECIDE:
 - Read the sticker lines in each description. 'Perishable' means it stops
   working after a few rounds. 'Rental' means it drains $3 every round.
   Both are worth much less than the same joker without them.
-- Booster packs open a selection screen this agent cannot yet handle, so
-  do not buy them. Prefer jokers, then consumables.
+- Booster packs can be opened now, and their contents chosen from. A pack
+  is usually several chances at a joker or a hand upgrade for one price,
+  so it competes with buying a joker outright.
 - Leaving without buying is a legitimate choice when nothing is worth its
   price, or when everything on offer is a pack.
 
 Choose one action now and explain your reasoning."""
+
+    def _create_pack_section(self, game_state: Dict[str, Any]) -> str:
+        """Prompt for an opened booster pack."""
+        items = game_state.get('pack_items', [])
+
+        lines = []
+        for entry in items:
+            text = ' '.join(str(entry.get('description_text', '')).split())
+            if len(text) > 160:
+                text = text[:160] + '...'
+            lines.append(
+                f'  Item {entry["index"]}: {entry["class_name"]}'
+                + (f' -> {text}' if text else ' -> (description unreadable)')
+            )
+
+        held = len(game_state.get('consumables', []))
+        owned_jokers = len(game_state.get('jokers', []))
+
+        return f"""WHAT TO DO NOW:
+You opened a booster pack. The items below are the pack's contents, not your
+hand, so they cannot be played.
+
+ON OFFER ({len(items)} items):
+{chr(10).join(lines) if lines else '  Nothing detected in the pack'}
+
+You hold {owned_jokers} of 5 jokers and {held} of 2 consumable slots.
+
+Take one with choose_from_pack(index=N), using the numbers above.
+Take none with click_button(button_type='skip').
+
+HOW TO DECIDE:
+- The pack is already paid for, so taking the best item costs nothing more.
+  Skip only when nothing on offer helps, or when a joker would need a slot
+  you do not have.
+- A joker that scales is usually worth more than a single playing card,
+  because it applies to every hand for the rest of the run.
+- Planet cards level up one poker hand permanently. They are worth most for
+  a hand you actually play often.
+- A joker cannot be taken with all five slots full, and a consumable cannot
+  be taken with both its slots full."""
 
     def _create_analysis_prompt(self, game_state: Dict[str, Any]) -> str:
         """Create prompt for game state analysis."""
@@ -600,6 +641,8 @@ Choose one action now and explain your reasoning."""
             )
         elif phase == 'shop':
             decision_section = self._create_shop_section(game_state)
+        elif phase == 'pack_opening':
+            decision_section = self._create_pack_section(game_state)
         else:
             # Suppress the poker instructions entirely off the table. Leaving
             # them in is what led an agent to call play_cards on the Cash Out

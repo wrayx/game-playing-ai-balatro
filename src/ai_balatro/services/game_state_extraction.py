@@ -97,6 +97,8 @@ class GameStateExtractionService:
             self._enrich_owned_jokers(frame, game_state)
             if game_state['game_phase'] == 'shop':
                 self._enrich_shop(frame, ui_elements, game_state)
+            elif game_state['game_phase'] == 'pack_opening':
+                self._enrich_pack(frame, entities, game_state)
 
         return game_state
 
@@ -198,6 +200,7 @@ class GameStateExtractionService:
             'ui_text_elements': [],
             'ui_text_values': {},
             'shop_items': [],
+            'pack_items': [],
             'consumables': [
                 {
                     'index': position,
@@ -310,6 +313,50 @@ class GameStateExtractionService:
 
         game_state['ui_text_elements'] = text_entries
         game_state['ui_text_values'] = value_map
+
+    #: Anything above this fraction of the window is the row you already own,
+    #: which stays on screen while a pack is open.
+    OWNED_ROW_MAX_FRACTION = 0.35
+
+    def _enrich_pack(
+        self,
+        base_frame: np.ndarray,
+        entities_detection: Sequence[Detection],
+        game_state: Dict[str, Any],
+    ) -> None:
+        """Read what an opened booster pack is offering.
+
+        A Buffoon pack offers jokers that share a class with the ones already
+        owned, so they are told apart by position: the owned row sits at the
+        top of the window, the pack's offering in the middle.
+        """
+        cutoff = base_frame.shape[0] * self.OWNED_ROW_MAX_FRACTION
+        offered = entities.sort_left_to_right(
+            d
+            for d in entities_detection
+            if d.bbox[1] > cutoff
+            and not entities.is_pile(d)
+            and not entities.is_description(d)
+        )
+        if not offered:
+            return
+
+        descriptions = self.sweep_descriptions(base_frame, offered)
+
+        game_state['pack_items'] = [
+            {
+                'index': idx,
+                'class_name': detection.class_name,
+                'confidence': detection.confidence,
+                'position': list(detection.bbox),
+                'description_text': (
+                    descriptions[idx].get('description_text', '')
+                    if idx < len(descriptions)
+                    else ''
+                ),
+            }
+            for idx, detection in enumerate(offered)
+        ]
 
     def _enrich_owned_jokers(
         self, base_frame: np.ndarray, game_state: Dict[str, Any]

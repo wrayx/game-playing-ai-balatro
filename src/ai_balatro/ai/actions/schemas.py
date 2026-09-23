@@ -202,6 +202,27 @@ GAME_ACTIONS = [
         },
     },
     {
+        'name': 'choose_from_pack',
+        'description': (
+            'Take one item from an opened booster pack, by its position '
+            'counting from the left starting at 0'
+        ),
+        'parameters': {
+            'type': 'object',
+            'properties': {
+                'index': {
+                    'type': 'integer',
+                    'description': 'Which offered item to take, 0 for the leftmost',
+                },
+                'description': {
+                    'type': 'string',
+                    'description': 'Why this one is the best of what is offered',
+                },
+            },
+            'required': ['index'],
+        },
+    },
+    {
         'name': 'click_button',
         'description': 'Click game interface button',
         'parameters': {
