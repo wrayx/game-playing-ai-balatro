@@ -192,6 +192,9 @@ Make immediate, optimal decisions based on the complete card information provide
 
             game_state = self._capture_recognisable_state()
 
+            if game_state is not None:
+                self._record_outcome_of_last_action(game_state)
+
             if game_state is None:
                 return AgentResult(
                     success=False,
@@ -270,10 +273,19 @@ Make immediate, optimal decisions based on the complete card information provide
             execution_result = self.action_executor.process({'function_call': action})
 
             # Record action in game history
+            before_state = self.current_game_state
+            arguments = action.get('arguments') or {}
+            indices = arguments.get('indices')
+
             action_record = {
                 'timestamp': time.time(),
                 'action': action,
-                'game_state_before': self.current_game_state.copy(),
+                'action_name': action.get('name', 'acted'),
+                'card_count': len(indices) if isinstance(indices, list) else None,
+                'target': self._ui_value(before_state, 'ui_score_target_score'),
+                'score_before': self._ui_value(before_state, 'ui_score_round_score'),
+                'score_after': None,
+                'game_state_before': before_state.copy(),
                 'success': execution_result.success,
                 'errors': execution_result.errors
                 if not execution_result.success
@@ -345,6 +357,55 @@ Make immediate, optimal decisions based on the complete card information provide
             if entry.get('class_name') == class_name:
                 return str(entry.get('text', '')).strip()
         return ''
+
+    def _record_outcome_of_last_action(self, game_state: Dict[str, Any]) -> None:
+        """Fill in what the previous action scored, now that the board is read.
+
+        The score is still animating when an action returns, so it can only be
+        attributed on the next settled capture.
+        """
+        if not self.game_history:
+            return
+
+        last = self.game_history[-1]
+        if last.get('score_after') is not None:
+            return
+        last['score_after'] = self._ui_value(game_state, 'ui_score_round_score')
+
+    def _blind_progress_summary(self, game_state: Dict[str, Any]) -> str:
+        """What has already happened in this blind.
+
+        The screen shows the current board but not the path to it: how many
+        hands have gone, what each one scored, whether discards were spent.
+        That is the one thing a turn genuinely cannot re-read, and a boss like
+        The Hook, which debuffs cards played earlier in the ante, makes it
+        matter. Entries are scoped by target score, so a new blind starts a
+        fresh list without needing to detect the transition.
+        """
+        target = self._ui_value(game_state, 'ui_score_target_score')
+        if not target:
+            return ''
+
+        entries = [
+            record
+            for record in self.game_history
+            if record.get('success') and record.get('target') == target
+        ]
+        if not entries:
+            return ''
+
+        lines = []
+        for number, record in enumerate(entries, start=1):
+            name = record.get('action_name', 'acted')
+            count = record.get('card_count')
+            what = f'{name} {count} cards' if count else name
+            before = record.get('score_before')
+            after = record.get('score_after')
+            if before is not None and after is not None and before != after:
+                what += f', score {before} to {after}'
+            lines.append(f'  {number}. {what}')
+
+        return 'THIS BLIND SO FAR:\n' + '\n'.join(lines) + '\n'
 
     def _create_shop_section(self, game_state: Dict[str, Any]) -> str:
         """Prompt for the shop screen.
@@ -579,7 +640,7 @@ Dynamic UI values ({len(game_state.get('ui_text_elements', []))} tracked):
 {chr(10).join(ui_text_info) if ui_text_info else 'No dynamic UI text detected'}
 
 GAME PHASE: {game_state.get('game_phase', 'unknown')}
-</game_state>
+{self._blind_progress_summary(game_state)}</game_state>
 
 {decision_section}"""
 
