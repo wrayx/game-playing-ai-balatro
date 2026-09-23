@@ -35,6 +35,27 @@ class ScreenCapture:
         except ImportError:
             logger.warning('pyobjc not available, manual selection mode will be used')
 
+    def refresh_window_region(self) -> bool:
+        """Re-detect the game window and update the capture region.
+
+        The region is found once at construction and cached, so a window that
+        is moved, resized, or belongs to a newly restarted game leaves every
+        capture pointing at stale screen coordinates -- which reads whatever
+        now occupies that rectangle rather than the game, silently.
+
+        Returns:
+            True when a window was found, leaving the region updated
+        """
+        previous = dict(self.capture_region) if self.capture_region else None
+
+        if not self._detect_balatro_window():
+            logger.warning('Could not re-detect the game window')
+            return False
+
+        if previous != self.capture_region:
+            logger.info(f'Game window moved: {previous} -> {self.capture_region}')
+        return True
+
     def set_capture_region(self, x: int, y: int, width: int, height: int) -> None:
         """
         Set capture region.

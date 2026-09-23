@@ -61,6 +61,14 @@ class GameStateExtractionService:
         capture_card_descriptions: bool = True,
     ) -> Optional[Dict[str, Any]]:
         """Capture a full game state snapshot with optional card description OCR."""
+        if frame is None:
+            # The window can move, be resized, or belong to a game restarted
+            # since this service was built. Re-detect once per capture rather
+            # than reading a stale rectangle.
+            refresh = getattr(self.screen_capture, 'refresh_window_region', None)
+            if callable(refresh):
+                refresh()
+
         if frame is None and self.mouse_controller is not None:
             # A cursor left on a card or shop item raises a tooltip that covers
             # whatever is behind it, and that tooltip is captured as part of the
